@@ -21,17 +21,17 @@
 </head>
 <body>
 <h1>Weekly old vs new</h1>
-<p class="note">Gross uses regular hours at straight time, off-shift hours at time-and-a-half, and overtime at the stub rate. The paycheck is the same old and new. Only hours counted for the 401(k) and pension change. A smaller pre-tax 401(k) deferral raises taxable income. The boxed tax row under pension credit is that extra income times your federal bracket plus Colorado 4.4%. It does not change Social Security or Medicare.</p>
-<label>Week 1 regular hours</label><input id="r1" type="number" value="28" min="0" step="0.25" />
-<label>Week 1 off-shift hours</label><input id="s1" type="number" value="12" min="0" step="0.25" />
-<label>Week 1 OT hours</label><input id="o1" type="number" value="23.25" min="0" step="0.25" />
-<label>Week 1 OT rate, blank for plain time-and-a-half</label><input id="ot1" type="number" value="135.46" min="0" step="0.01" />
-<label>Week 2 regular hours</label><input id="r2" type="number" value="33.75" min="0" step="0.25" />
-<label>Week 2 off-shift hours</label><input id="s2" type="number" value="6.25" min="0" step="0.25" />
-<label>Week 2 OT hours</label><input id="o2" type="number" value="14.5" min="0" step="0.25" />
-<label>Week 2 OT rate, blank for plain time-and-a-half</label><input id="ot2" type="number" value="133.82" min="0" step="0.01" />
-<label>Straight-time rate</label><input id="rate" type="number" value="87.54" min="0" step="0.01" />
-<label>Your 401(k) percent of counted pay</label><input id="defer" type="number" value="15" min="0" step="0.5" />
+<p class="note">Enter your own hours. Gross uses regular hours at straight time, off-shift hours at time-and-a-half, and overtime at the rate you enter. The paycheck is the same old and new. Only hours counted for the 401(k) and pension change. The boxed tax row under pension credit is the extra income tax from a smaller pre-tax deferral. It does not change Social Security or Medicare.</p>
+<label>Week 1 regular hours</label><input id="r1" type="number" value="0" min="0" step="0.25" />
+<label>Week 1 off-shift hours</label><input id="s1" type="number" value="0" min="0" step="0.25" />
+<label>Week 1 OT hours</label><input id="o1" type="number" value="0" min="0" step="0.25" />
+<label>Week 1 OT rate, blank for plain time-and-a-half</label><input id="ot1" type="number" value="" min="0" step="0.01" />
+<label>Week 2 regular hours</label><input id="r2" type="number" value="0" min="0" step="0.25" />
+<label>Week 2 off-shift hours</label><input id="s2" type="number" value="0" min="0" step="0.25" />
+<label>Week 2 OT hours</label><input id="o2" type="number" value="0" min="0" step="0.25" />
+<label>Week 2 OT rate, blank for plain time-and-a-half</label><input id="ot2" type="number" value="" min="0" step="0.01" />
+<label>Straight-time rate</label><input id="rate" type="number" value="0" min="0" step="0.01" />
+<label>Your 401(k) percent of counted pay</label><input id="defer" type="number" value="0" min="0" step="0.5" />
 <label>Federal tax bracket</label>
 <select id="fed"><option>10</option><option>12</option><option selected>22</option><option>24</option><option>32</option><option>35</option><option>37</option></select>
 <label>Colorado 4.4%</label>
@@ -40,11 +40,11 @@
 <select id="year"><option>2023</option><option>2024</option><option>2025</option><option selected>2026</option></select>
 <label>Catch-up</label>
 <select id="catchup"><option value="none">None</option><option value="50">Age 50 or over</option><option value="60">Age 60-63</option></select>
-<label>YTD employee 401(k) already deferred, not the company match</label><input id="ytd" type="number" value="16787.42" min="0" step="0.01" />
+<label>YTD employee 401(k) already deferred, not the company match</label><input id="ytd" type="number" value="0" min="0" step="0.01" />
 <button type="button" id="go">Calculate</button>
 <div id="out"></div>
 <script>
-const CAP = 40, PEP = 0.10;
+const PEP = 0.10;
 const LIMITS = { 2023:{base:22500,catch50:7500,catch60:7500}, 2024:{base:23000,catch50:7500,catch60:7500}, 2025:{base:23500,catch50:7500,catch60:11250}, 2026:{base:24500,catch50:8000,catch60:11250} };
 function money(n){ return n.toLocaleString("en-US",{style:"currency",currency:"USD"}); }
 function num(n){ return Number(n).toLocaleString("en-US",{maximumFractionDigits:2}); }
@@ -75,7 +75,7 @@ function calc(){
     <tr><td>Pension credit, 10% of counted pay</td><td>${money(oldPay*PEP)}</td><td>${money(newPay*PEP)}</td><td class="diff">${money((oldPay-newPay)*PEP)}</td></tr>
     <tr class="tax"><td>Income tax from the 401(k) difference</td><td>${money(taxOld)}</td><td>${money(taxNew)}</td><td class="diff">${money(taxOld-taxNew)}</td></tr>
   </table>
-  <p>Combined marginal rate: ${num(taxRate*100)}%. The boxed row is extra income tax under the new method. Off-shift rate: ${money(off)}. ${year} employee limit: ${money(annual)}. Room left before this check: ${money(room)}.</p>`;
+  <p>Combined marginal rate: ${num(taxRate*100)}%. The boxed row is extra income tax under the new method. ${year} employee limit: ${money(annual)}. Room left before this check: ${money(room)}.</p>`;
 }
 document.getElementById("go").onclick=calc; calc();
 </script>
