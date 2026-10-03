@@ -3,111 +3,54 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>Paycheck hour-cap loss</title>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<title>Old vs new pension hours</title>
 <style>
   body { font-family: Arial, sans-serif; margin: 24px; color: #1a1a1a; }
   h1 { font-size: 22px; }
-  #drop { border: 2px dashed #1F4E79; border-radius: 8px; padding: 28px; background: #f4f8fb; max-width: 720px; }
-  input[type=file] { display: block; margin-top: 12px; font-size: 16px; }
-  button, a.btn { background: #1F4E79; color: #fff; border: 0; padding: 8px 14px; border-radius: 4px; cursor: pointer; text-decoration: none; display: inline-block; }
-  table { border-collapse: collapse; margin-top: 16px; font-size: 13px; }
-  th, td { border: 1px solid #d9d9d9; padding: 4px 8px; text-align: right; }
+  label { display: block; margin: 10px 0 4px; font-weight: bold; }
+  input { font-size: 16px; padding: 6px; width: 140px; }
+  button { background: #1F4E79; color: #fff; border: 0; padding: 8px 14px; border-radius: 4px; cursor: pointer; margin-top: 12px; }
+  table { border-collapse: collapse; margin-top: 16px; }
+  th, td { border: 1px solid #d9d9d9; padding: 6px 10px; text-align: right; }
   th { background: #1F4E79; color: #fff; }
-  td:first-child, th:first-child { text-align: left; }
-  .note { color: #595959; font-size: 13px; max-width: 720px; }
+  .old { background: #e2efda; }
+  .new { background: #fce4d6; }
+  .note { color: #595959; max-width: 720px; }
 </style>
 </head>
 <body>
-<h1>Workday paycheck hour-cap loss</h1>
-<p class="note">Use the file box below. It is a normal browser file control. The paycheck is read on this computer and is not uploaded. Each week is capped at 40. Estimate is a 4% employer match plus 10% PEP balance credit.</p>
-<div id="drop">
-  <div>Choose a Workday PDF, or drop it on this box.</div>
-  <input id="file" type="file" accept="application/pdf,.pdf" />
-</div>
-<p id="status" class="note"></p>
+<h1>Old hours vs 40-hour cap</h1>
+<p class="note">Type the hours worked each week. The old method counts every hour. The new method counts 40 per week and drops the rest. A week of 86 and a week of 0 counts as 40, not 86.</p>
+<label>Week 1 hours worked</label><input id="w1" type="number" value="86" min="0" step="0.25" />
+<label>Week 2 hours worked</label><input id="w2" type="number" value="0" min="0" step="0.25" />
+<label>Straight-time rate</label><input id="rate" type="number" value="72.40" min="0" step="0.01" />
+<button type="button" id="go">Calculate old vs new</button>
 <div id="out"></div>
 <script>
-pdfjsLib.GlobalWorkerOptions.workerSrc = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
-const MATCH = 0.04, PEP = 0.10, CAP = 40, YEAR = 2016;
-const drop = document.getElementById("drop");
-const fileInput = document.getElementById("file");
-const status = document.getElementById("status");
-fileInput.addEventListener("change", () => handle(fileInput.files));
-drop.addEventListener("dragover", e => e.preventDefault());
-drop.addEventListener("drop", e => { e.preventDefault(); handle(e.dataTransfer.files); });
+const CAP = 40, MATCH = 0.04, PEP = 0.10, YEAR = 2016;
 function money(n) { return n.toLocaleString("en-US", { style: "currency", currency: "USD" }); }
 function num(n) { return Number(n).toLocaleString("en-US", { maximumFractionDigits: 2 }); }
-async function handle(files) {
-  if (!files || !files.length) { status.textContent = "No file selected."; return; }
-  status.textContent = "Reading " + files[0].name + "...";
-  let text = "";
-  try {
-    for (const f of files) {
-      if (!/\.pdf$/i.test(f.name)) continue;
-      const data = new Uint8Array(await f.arrayBuffer());
-      const pdf = await pdfjsLib.getDocument({ data }).promise;
-      for (let i = 1; i <= pdf.numPages; i++) {
-        const page = await pdf.getPage(i);
-        const content = await page.getTextContent();
-        text += content.items.map(it => it.str).join(" ") + "\n";
-      }
-    }
-  } catch (err) {
-    status.textContent = "Could not read that PDF: " + err.message;
-    return;
-  }
-  const rows = parseStubs(text);
-  if (!rows.length) { status.textContent = "Opened the PDF, but found no RegPay or OT lines. It may be a scan."; return; }
-  status.textContent = "Found " + rows.length + " checks.";
-  render(rows);
+function calc() {
+  const w1 = Number(document.getElementById("w1").value) || 0;
+  const w2 = Number(document.getElementById("w2").value) || 0;
+  const rate = Number(document.getElementById("rate").value) || 0;
+  const oldHours = w1 + w2;
+  const newHours = Math.min(w1, CAP) + Math.min(w2, CAP);
+  const dropped = Math.max(0, oldHours - newHours);
+  const lost401 = dropped * rate * MATCH;
+  const pepLost = dropped * rate * PEP;
+  document.getElementById("out").innerHTML =
+    `<table>
+      <tr><th></th><th>Week 1</th><th>Week 2</th><th>Counted</th></tr>
+      <tr class="old"><td>Old method</td><td>${num(w1)}</td><td>${num(w2)}</td><td>${num(oldHours)}</td></tr>
+      <tr class="new"><td>New method, 40 max</td><td>${num(Math.min(w1, CAP))}</td><td>${num(Math.min(w2, CAP))}</td><td>${num(newHours)}</td></tr>
+    </table>
+    <p><b>Pension hours:</b> old method counts ${num(oldHours)}. New method counts ${num(newHours)}. Hours not counted: ${num(dropped)}.</p>
+    <p>401(k) match not paid on those hours, at 4%: ${money(lost401)}. PEP balance credit not earned, at 10% of straight time: ${money(pepLost)}.</p>
+    <p class="note">The empty week does not give the overtime week back. 86 and 0 is 40, not 80.</p>`;
 }
-function parseStubs(text) {
-  const chunks = text.split(/(?=Pay Period End|Name\s+Company)/);
-  const hdr = /(\d{2}\/\d{2}\/\d{4})\s+(\d{2}\/\d{2}\/\d{4})\s+(\d{2}\/\d{2}\/\d{4})/;
-  const rows = [];
-  for (const chunk of chunks) {
-    const h = chunk.match(hdr);
-    if (!h) continue;
-    const begin = new Date(h[1]), end = h[2];
-    let w1 = 0, w2 = 0, ot = 0, straightPay = 0, straightHours = 0, rate = 0;
-    const local = /(OffShft1\.5|RegPay1\.5|OT 1\.5|RegPay|Holiday|PTO)\s+(\d{2}\/\d{2}\/\d{4})\s*-\s*\d{2}\/\d{2}\/\d{4}\s+(\d+(?:\.\d+)?)\s+(\d+(?:\.\d+)?)\s+([\d,]+\.\d{2})/g;
-    let m;
-    while ((m = local.exec(chunk))) {
-      const code = m[1], start = new Date(m[2]), hours = parseFloat(m[3]), lineRate = parseFloat(m[4]);
-      const amt = parseFloat(m[5].replace(/,/g, ""));
-      if ((start - begin) / 86400000 < 7) w1 += hours; else w2 += hours;
-      if (code === "OT 1.5" || code === "OffShft1.5" || code === "RegPay1.5") ot += hours;
-      else { straightPay += amt; straightHours += hours; if (code === "RegPay") rate = lineRate; }
-    }
-    if (w1 + w2 === 0) continue;
-    if (!rate && straightHours) rate = straightPay / straightHours;
-    const capped = Math.min(w1, CAP) + Math.min(w2, CAP);
-    rows.push({ end, w1, w2, rate, ot, hours: w1 + w2, capped, lost401: Math.max(0, (w1 + w2 - capped) * rate) * MATCH, oldWages: (w1 + w2) * rate, newWages: capped * rate });
-  }
-  return rows;
-}
-function render(rows) {
-  const hours = rows.reduce((s, r) => s + r.hours, 0);
-  const capped = rows.reduce((s, r) => s + r.capped, 0);
-  const lost401 = rows.reduce((s, r) => s + r.lost401, 0);
-  const oldW = rows.reduce((s, r) => s + r.oldWages, 0);
-  const newW = rows.reduce((s, r) => s + r.newWages, 0);
-  const pepLost = Math.max(0, PEP * oldW * Math.min(1, hours / YEAR) - PEP * newW * Math.min(1, capped / YEAR));
-  const csv = ["Period end,Week 1 hours,Week 2 hours,Straight rate,OT hours,Hours worked,Hours capped,401k lost"].concat(rows.map(r => [r.end, r.w1.toFixed(2), r.w2.toFixed(2), r.rate.toFixed(2), r.ot.toFixed(2), r.hours.toFixed(2), r.capped.toFixed(2), r.lost401.toFixed(2)].join(","))).join("\r\n");
-  const href = "data:text/csv;charset=utf-8," + encodeURIComponent(csv);
-  let html = `<p><b>${rows.length} checks.</b> Hours dropped: ${num(hours - capped)}. 401(k) lost: ${money(lost401)}. PEP balance lost: ${money(pepLost)}. Combined: ${money(lost401 + pepLost)}.</p>`;
-  html += `<p><a class="btn" download="hour_cap_loss.csv" href="${href}">Download hour_cap_loss.csv</a> <button type="button" id="copy">Copy CSV</button></p>`;
-  html += `<textarea id="csv" rows="8" style="width:100%;max-width:760px">${csv}</textarea>`;
-  html += "<table><tr><th>Period end</th><th>Week 1</th><th>Week 2</th><th>Rate</th><th>OT hours</th><th>Hours</th><th>Capped</th><th>401k lost</th></tr>";
-  for (const r of rows) html += `<tr><td>${r.end}</td><td>${num(r.w1)}</td><td>${num(r.w2)}</td><td>${money(r.rate)}</td><td>${num(r.ot)}</td><td>${num(r.hours)}</td><td>${num(r.capped)}</td><td>${money(r.lost401)}</td></tr>`;
-  html += "</table>";
-  document.getElementById("out").innerHTML = html;
-  document.getElementById("copy").onclick = async () => {
-    try { await navigator.clipboard.writeText(csv); document.getElementById("copy").textContent = "Copied"; }
-    catch (e) { document.getElementById("csv").select(); document.execCommand("copy"); }
-  };
-}
+document.getElementById("go").onclick = calc;
+calc();
 </script>
 </body>
 </html>
