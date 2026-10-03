@@ -3,51 +3,60 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>Old vs new pension hours</title>
+<title>Old vs new 401k and pension</title>
 <style>
   body { font-family: Arial, sans-serif; margin: 24px; color: #1a1a1a; }
   h1 { font-size: 22px; }
   label { display: block; margin: 10px 0 4px; font-weight: bold; }
-  input { font-size: 16px; padding: 6px; width: 140px; }
+  input { font-size: 16px; padding: 6px; width: 160px; }
   button { background: #1F4E79; color: #fff; border: 0; padding: 8px 14px; border-radius: 4px; cursor: pointer; margin-top: 12px; }
   table { border-collapse: collapse; margin-top: 16px; }
   th, td { border: 1px solid #d9d9d9; padding: 6px 10px; text-align: right; }
   th { background: #1F4E79; color: #fff; }
-  .old { background: #e2efda; }
-  .new { background: #fce4d6; }
-  .note { color: #595959; max-width: 720px; }
+  td:first-child { text-align: left; font-weight: bold; }
+  .note { color: #595959; max-width: 760px; }
 </style>
 </head>
 <body>
-<h1>Old hours vs 40-hour cap</h1>
-<p class="note">Type the hours worked each week. The old method counts every hour. The new method counts 40 per week and drops the rest. A week of 86 and a week of 0 counts as 40, not 86.</p>
-<label>Week 1 hours worked</label><input id="w1" type="number" value="86" min="0" step="0.25" />
-<label>Week 2 hours worked</label><input id="w2" type="number" value="0" min="0" step="0.25" />
+<h1>Old calc vs new calc</h1>
+<p class="note">Old counts every hour. New counts 40 per week. A week of 86 and a week of 0 counts as 40, not 86. The company 401(k) is half of what you put in, and it stops at 4%. You need to put in 8% to get the full 4%. If you put in nothing, the company puts in nothing.</p>
+<label>Week 1 hours</label><input id="w1" type="number" value="86" min="0" step="0.25" />
+<label>Week 2 hours</label><input id="w2" type="number" value="0" min="0" step="0.25" />
 <label>Straight-time rate</label><input id="rate" type="number" value="72.40" min="0" step="0.01" />
-<button type="button" id="go">Calculate old vs new</button>
+<label>Your 401(k) percent</label><input id="defer" type="number" value="8" min="0" step="0.5" />
+<button type="button" id="go">Calculate</button>
 <div id="out"></div>
 <script>
-const CAP = 40, MATCH = 0.04, PEP = 0.10, YEAR = 2016;
+const CAP = 40, PEP = 0.10;
 function money(n) { return n.toLocaleString("en-US", { style: "currency", currency: "USD" }); }
 function num(n) { return Number(n).toLocaleString("en-US", { maximumFractionDigits: 2 }); }
+function matchRate(deferRate) { return Math.min(deferRate * 0.5, 0.04); }
 function calc() {
   const w1 = Number(document.getElementById("w1").value) || 0;
   const w2 = Number(document.getElementById("w2").value) || 0;
   const rate = Number(document.getElementById("rate").value) || 0;
+  const defer = (Number(document.getElementById("defer").value) || 0) / 100;
   const oldHours = w1 + w2;
   const newHours = Math.min(w1, CAP) + Math.min(w2, CAP);
-  const dropped = Math.max(0, oldHours - newHours);
-  const lost401 = dropped * rate * MATCH;
-  const pepLost = dropped * rate * PEP;
+  const oldPay = oldHours * rate;
+  const newPay = newHours * rate;
+  const m = matchRate(defer);
+  const eeOld = oldPay * defer, eeNew = newPay * defer;
+  const erOld = oldPay * m, erNew = newPay * m;
+  const pepOld = oldPay * PEP, pepNew = newPay * PEP;
   document.getElementById("out").innerHTML =
     `<table>
-      <tr><th></th><th>Week 1</th><th>Week 2</th><th>Counted</th></tr>
-      <tr class="old"><td>Old method</td><td>${num(w1)}</td><td>${num(w2)}</td><td>${num(oldHours)}</td></tr>
-      <tr class="new"><td>New method, 40 max</td><td>${num(Math.min(w1, CAP))}</td><td>${num(Math.min(w2, CAP))}</td><td>${num(newHours)}</td></tr>
+      <tr><th></th><th>Old</th><th>New, 40 max each week</th><th>Difference</th></tr>
+      <tr><td>Week 1 hours counted</td><td>${num(w1)}</td><td>${num(Math.min(w1, CAP))}</td><td>${num(w1 - Math.min(w1, CAP))}</td></tr>
+      <tr><td>Week 2 hours counted</td><td>${num(w2)}</td><td>${num(Math.min(w2, CAP))}</td><td>${num(w2 - Math.min(w2, CAP))}</td></tr>
+      <tr><td>Hours toward pension</td><td>${num(oldHours)}</td><td>${num(newHours)}</td><td>${num(oldHours - newHours)}</td></tr>
+      <tr><td>Pay used</td><td>${money(oldPay)}</td><td>${money(newPay)}</td><td>${money(oldPay - newPay)}</td></tr>
+      <tr><td>Your 401(k)</td><td>${money(eeOld)}</td><td>${money(eeNew)}</td><td>${money(eeOld - eeNew)}</td></tr>
+      <tr><td>Company 401(k)</td><td>${money(erOld)}</td><td>${money(erNew)}</td><td>${money(erOld - erNew)}</td></tr>
+      <tr><td>Pension credit, 10% of that pay</td><td>${money(pepOld)}</td><td>${money(pepNew)}</td><td>${money(pepOld - pepNew)}</td></tr>
     </table>
-    <p><b>Pension hours:</b> old method counts ${num(oldHours)}. New method counts ${num(newHours)}. Hours not counted: ${num(dropped)}.</p>
-    <p>401(k) match not paid on those hours, at 4%: ${money(lost401)}. PEP balance credit not earned, at 10% of straight time: ${money(pepLost)}.</p>
-    <p class="note">The empty week does not give the overtime week back. 86 and 0 is 40, not 80.</p>`;
+    <p>Company match rate on this entry: ${num(m * 100)}%. Half of your contribution, and it cannot go over 4%.</p>
+    <p class="note">Pension credit here is the estimated PEP balance added by these hours, not the monthly check. Already-earned credit is not reduced.</p>`;
 }
 document.getElementById("go").onclick = calc;
 calc();
