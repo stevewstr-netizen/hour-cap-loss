@@ -11,6 +11,7 @@
   p { max-width: 760px; }
   #drop { border: 2px dashed #1F4E79; border-radius: 8px; padding: 28px; text-align: center; background: #f4f8fb; }
   #drop.over { background: #e2efda; }
+  label.pick { display: inline-block; background: #1F4E79; color: #fff; padding: 10px 16px; border-radius: 4px; cursor: pointer; }
   button, a.btn { background: #1F4E79; color: #fff; border: 0; padding: 8px 14px; border-radius: 4px; cursor: pointer; text-decoration: none; display: inline-block; }
   table { border-collapse: collapse; margin-top: 16px; font-size: 13px; }
   th, td { border: 1px solid #d9d9d9; padding: 4px 8px; text-align: right; }
@@ -21,28 +22,31 @@
 </head>
 <body>
 <h1>Drop a Workday paycheck PDF</h1>
-<p>Drop one paycheck or a stack of them. Hours are read in your browser and are not uploaded. Each week is capped at 40. The estimate is 4% employer match plus 10% PEP balance credit.</p>
-<div id="drop">Drop the PDF here, or <button type="button" id="pick">choose a file</button><input id="file" type="file" accept="application/pdf,.pdf" hidden /></div>
-<p class="note">Paychecks stay on this computer. This is an estimate, not a plan determination.</p>
+<p>Drop a paycheck PDF on the box, or use Choose file. The check is read in your browser and is not uploaded. Each week is capped at 40. The estimate is a 4% employer match plus 10% PEP balance credit.</p>
+<div id="drop">
+  <p>Drop the PDF here</p>
+  <label class="pick">Choose file<input id="file" type="file" accept="application/pdf,.pdf" style="display:none" /></label>
+</div>
+<p class="note">Paychecks stay on this computer. This is an estimate, not a plan determination. Open this page in Chrome or Edge, not inside a preview frame.</p>
 <div id="out"></div>
 <script>
 pdfjsLib.GlobalWorkerOptions.workerSrc = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
 const MATCH = 0.04, PEP = 0.10, CAP = 40, YEAR = 2016;
 const drop = document.getElementById("drop");
 const fileInput = document.getElementById("file");
-document.getElementById("pick").onclick = () => fileInput.click();
-fileInput.onchange = () => handle(fileInput.files);
-drop.ondragover = e => { e.preventDefault(); drop.classList.add("over"); };
-drop.ondragleave = () => drop.classList.remove("over");
-drop.ondrop = e => { e.preventDefault(); drop.classList.remove("over"); handle(e.dataTransfer.files); };
+fileInput.addEventListener("change", () => handle(fileInput.files));
+drop.addEventListener("dragover", e => { e.preventDefault(); drop.classList.add("over"); });
+drop.addEventListener("dragleave", () => drop.classList.remove("over"));
+drop.addEventListener("drop", e => { e.preventDefault(); drop.classList.remove("over"); handle(e.dataTransfer.files); });
 function money(n) { return n.toLocaleString("en-US", { style: "currency", currency: "USD" }); }
 function num(n) { return Number(n).toLocaleString("en-US", { maximumFractionDigits: 2 }); }
 async function handle(files) {
   const out = document.getElementById("out");
+  if (!files || !files.length) return;
   out.innerHTML = "Reading…";
   let text = "";
   for (const f of files) {
-    if (!f.name.toLowerCase().endsWith(".pdf")) continue;
+    if (!/\.pdf$/i.test(f.name)) continue;
     const data = new Uint8Array(await f.arrayBuffer());
     const pdf = await pdfjsLib.getDocument({ data }).promise;
     for (let i = 1; i <= pdf.numPages; i++) {
@@ -97,7 +101,7 @@ function render(rows) {
   const csv = csvText(rows);
   const href = "data:text/csv;charset=utf-8," + encodeURIComponent(csv);
   let html = `<p><b>${rows.length} checks.</b> Hours dropped: ${num(hours - capped)}. 401(k) lost: ${money(lost401)}. PEP balance lost: ${money(pepLost)}. Combined: ${money(lost401 + pepLost)}.</p>`;
-  html += `<p><a class="btn" id="dl" download="hour_cap_loss.csv" href="${href}">Download hour_cap_loss.csv</a> <button type="button" id="copy">Copy CSV</button></p>`;
+  html += `<p><a class="btn" download="hour_cap_loss.csv" href="${href}">Download hour_cap_loss.csv</a> <button type="button" id="copy">Copy CSV</button></p>`;
   html += `<textarea id="csv" rows="8" style="width:100%;max-width:760px;font-family:Consolas,monospace;">${csv.replace(/</g,"")}</textarea>`;
   html += "<table><tr><th>Period end</th><th>Week 1</th><th>Week 2</th><th>Rate</th><th>OT hours</th><th>Hours</th><th>Capped</th><th>401k lost</th></tr>";
   for (const r of rows) html += `<tr><td>${r.end}</td><td>${num(r.w1)}</td><td>${num(r.w2)}</td><td>${money(r.rate)}</td><td>${num(r.ot)}</td><td>${num(r.hours)}</td><td>${num(r.capped)}</td><td>${money(r.lost401)}</td></tr>`;
