@@ -21,7 +21,7 @@
 </head>
 <body>
 <h1>Weekly old vs new</h1>
-<p class="note">Enter your own hours. Gross uses regular hours at straight time, off-shift hours at time-and-a-half, and overtime at the rate you enter. The paycheck is the same old and new. Only hours counted for the 401(k) and pension change. The boxed tax row under pension credit is the extra income tax from a smaller pre-tax deferral. It does not change Social Security or Medicare.</p>
+<p class="note">Enter the 401(k) amount from this check. The rate is that amount divided by pay counted under the new method, then applied to the old counted pay. The federal bracket is looked up from year-to-date federal taxable wages and filing status. It is not typed in. 2026 tables are from IRS Rev. Proc. 2025-32. Colorado 4.4% is added. Social Security and Medicare do not change.</p>
 <label>Week 1 regular hours</label><input id="r1" type="number" value="0" min="0" step="0.25" />
 <label>Week 1 off-shift hours</label><input id="s1" type="number" value="0" min="0" step="0.25" />
 <label>Week 1 OT hours</label><input id="o1" type="number" value="0" min="0" step="0.25" />
@@ -31,51 +31,63 @@
 <label>Week 2 OT hours</label><input id="o2" type="number" value="0" min="0" step="0.25" />
 <label>Week 2 OT rate, blank for plain time-and-a-half</label><input id="ot2" type="number" value="" min="0" step="0.01" />
 <label>Straight-time rate</label><input id="rate" type="number" value="0" min="0" step="0.01" />
-<label>Your 401(k) percent of counted pay</label><input id="defer" type="number" value="0" min="0" step="0.5" />
-<label>Federal tax bracket</label>
-<select id="fed"><option>10</option><option>12</option><option selected>22</option><option>24</option><option>32</option><option>35</option><option>37</option></select>
-<label>Colorado 4.4%</label>
-<select id="co"><option value="0.044" selected>Yes</option><option value="0">No</option></select>
+<label>Employee 401(k) on this check</label><input id="ee" type="number" value="0" min="0" step="0.01" />
+<label>Filing status on the check</label>
+<select id="status"><option value="single">Single</option><option value="joint">Married filing jointly</option></select>
+<label>YTD federal taxable wages, including this check</label><input id="taxable" type="number" value="0" min="0" step="0.01" />
 <label>Plan year</label>
 <select id="year"><option>2023</option><option>2024</option><option>2025</option><option selected>2026</option></select>
 <label>Catch-up</label>
 <select id="catchup"><option value="none">None</option><option value="50">Age 50 or over</option><option value="60">Age 60-63</option></select>
-<label>YTD employee 401(k) already deferred, not the company match</label><input id="ytd" type="number" value="0" min="0" step="0.01" />
+<label>YTD employee 401(k) before this check</label><input id="ytd" type="number" value="0" min="0" step="0.01" />
 <button type="button" id="go">Calculate</button>
 <div id="out"></div>
 <script>
-const PEP = 0.10;
+const PEP = 0.10, CO = 0.044;
 const LIMITS = { 2023:{base:22500,catch50:7500,catch60:7500}, 2024:{base:23000,catch50:7500,catch60:7500}, 2025:{base:23500,catch50:7500,catch60:11250}, 2026:{base:24500,catch50:8000,catch60:11250} };
+const BRACKETS = {
+  single: [[0.10,12400],[0.12,50400],[0.22,105700],[0.24,201775],[0.32,256225],[0.35,640600],[0.37,Infinity]],
+  joint: [[0.10,24800],[0.12,100800],[0.22,211400],[0.24,403550],[0.32,512450],[0.35,768700],[0.37,Infinity]]
+};
 function money(n){ return n.toLocaleString("en-US",{style:"currency",currency:"USD"}); }
 function num(n){ return Number(n).toLocaleString("en-US",{maximumFractionDigits:2}); }
+function bracket(status, taxable){
+  const rows = BRACKETS[status];
+  for (const [rate, top] of rows) if (taxable <= top) return rate;
+  return 0.37;
+}
 function calc(){
   const r1=+document.getElementById("r1").value||0, s1=+document.getElementById("s1").value||0, o1=+document.getElementById("o1").value||0;
   const r2=+document.getElementById("r2").value||0, s2=+document.getElementById("s2").value||0, o2=+document.getElementById("o2").value||0;
   const rate=+document.getElementById("rate").value||0;
   const ot1=+document.getElementById("ot1").value||rate*1.5, ot2=+document.getElementById("ot2").value||rate*1.5;
-  const defer=(+document.getElementById("defer").value||0)/100;
-  const fed=(+document.getElementById("fed").value||0)/100, co=+document.getElementById("co").value||0, taxRate=fed+co;
+  const eeCheck=+document.getElementById("ee").value||0;
+  const status=document.getElementById("status").value;
+  const taxable=+document.getElementById("taxable").value||0;
   const year=document.getElementById("year").value, catchup=document.getElementById("catchup").value, ytd=+document.getElementById("ytd").value||0;
   const lim=LIMITS[year];
   const annual=lim.base+(catchup==="60"?lim.catch60:catchup==="50"?lim.catch50:0);
   const room=Math.max(0,annual-ytd), off=rate*1.5;
+  const fed=bracket(status, taxable), taxRate=fed+CO;
   const pay=r1*rate+s1*off+o1*ot1+r2*rate+s2*off+o2*ot2;
   const w1=r1+s1+o1, w2=r2+s2+o2, oldHours=w1+w2, newHours=Math.min(w1,40)+Math.min(w2,40);
   const oldPay=oldHours*rate, newPay=newHours*rate;
-  const eeOld=Math.min(oldPay*defer,room), eeNew=Math.min(newPay*defer,room);
-  const erOld=Math.min(eeOld*0.5,oldPay*0.04), erNew=Math.min(eeNew*0.5,newPay*0.04);
+  const defer=newPay>0?eeCheck/newPay:0;
+  const eeNew=Math.min(eeCheck, room);
+  const eeOld=Math.min(oldPay*defer, room);
+  const erOld=Math.min(eeOld*0.5, oldPay*0.04), erNew=Math.min(eeNew*0.5, newPay*0.04);
   const taxOld=eeOld*taxRate, taxNew=eeNew*taxRate;
   document.getElementById("out").innerHTML=`<table>
     <tr><th></th><th>Old</th><th>New, 40 max each week</th><th class="diff">Difference</th></tr>
     <tr><td>Paycheck</td><td>${money(pay)}</td><td>${money(pay)}</td><td class="diff">${money(0)}</td></tr>
     <tr><td>Hours counted for 401(k) and pension</td><td>${num(oldHours)}</td><td>${num(newHours)}</td><td class="diff">${num(oldHours-newHours)}</td></tr>
     <tr><td>Pay counted for 401(k) and pension</td><td>${money(oldPay)}</td><td>${money(newPay)}</td><td class="diff">${money(oldPay-newPay)}</td></tr>
-    <tr><td>Your 401(k), after the annual limit</td><td>${money(eeOld)}</td><td>${money(eeNew)}</td><td class="diff">${money(eeOld-eeNew)}</td></tr>
+    <tr><td>Your 401(k)</td><td>${money(eeOld)}</td><td>${money(eeNew)}</td><td class="diff">${money(eeOld-eeNew)}</td></tr>
     <tr><td>Company 401(k)</td><td>${money(erOld)}</td><td>${money(erNew)}</td><td class="diff">${money(erOld-erNew)}</td></tr>
     <tr><td>Pension credit, 10% of counted pay</td><td>${money(oldPay*PEP)}</td><td>${money(newPay*PEP)}</td><td class="diff">${money((oldPay-newPay)*PEP)}</td></tr>
     <tr class="tax"><td>Income tax from the 401(k) difference</td><td>${money(taxOld)}</td><td>${money(taxNew)}</td><td class="diff">${money(taxOld-taxNew)}</td></tr>
   </table>
-  <p>Combined marginal rate: ${num(taxRate*100)}%. The boxed row is extra income tax under the new method. ${year} employee limit: ${money(annual)}. Room left before this check: ${money(room)}.</p>`;
+  <p>Deferral rate from this check: ${num(defer*100)}% of counted pay. Federal bracket from the table: ${num(fed*100)}% ${status}. Combined with Colorado: ${num(taxRate*100)}%. ${year} employee limit: ${money(annual)}. Room left before this check: ${money(room)}.</p>`;
 }
 document.getElementById("go").onclick=calc; calc();
 </script>
