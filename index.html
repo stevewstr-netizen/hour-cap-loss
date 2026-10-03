@@ -3,12 +3,12 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>Old vs new 401k and pension</title>
+<title>Weekly old vs new 401k and pension</title>
 <style>
   body { font-family: Arial, sans-serif; margin: 24px; color: #1a1a1a; }
   h1 { font-size: 22px; }
   label { display: block; margin: 10px 0 4px; font-weight: bold; }
-  input { font-size: 16px; padding: 6px; width: 160px; }
+  input, select { font-size: 16px; padding: 6px; width: 180px; }
   button { background: #1F4E79; color: #fff; border: 0; padding: 8px 14px; border-radius: 4px; cursor: pointer; margin-top: 12px; }
   table { border-collapse: collapse; margin-top: 16px; }
   th, td { border: 1px solid #d9d9d9; padding: 6px 10px; text-align: right; }
@@ -18,49 +18,79 @@
 </style>
 </head>
 <body>
-<h1>Old calc vs new calc</h1>
-<p class="note">The paycheck does not change. Overtime is still paid. The new method stops counting hours over 40 in a week toward the 401(k) and the pension. A week of 86 and a week of 0 still pays 86 hours, but only 40 count for benefits. Company 401(k) is half of what you put in, and it stops at 4% of counted pay. Put in 8% to get the full 4%. Put in nothing and the company puts in nothing.</p>
+<h1>Weekly old vs new</h1>
+<p class="note">The paycheck does not change. Overtime is still paid. Hours over 40 in a week do not count toward the 401(k) or the pension. Company 401(k) is half of what you put in, and it stops at 4% of counted pay. Put in 8% to get the full 4%. Put in nothing and the company puts in nothing. Your own deferral also stops at the IRS annual limit.</p>
 <label>Week 1 hours worked</label><input id="w1" type="number" value="86" min="0" step="0.25" />
 <label>Week 2 hours worked</label><input id="w2" type="number" value="0" min="0" step="0.25" />
-<label>Straight-time rate</label><input id="rate" type="number" value="72.40" min="0" step="0.01" />
+<label>Straight-time rate</label><input id="rate" type="number" value="87.54" min="0" step="0.01" />
+<label>Week 1 overtime rate, blank for plain time-and-a-half</label><input id="ot1" type="number" value="" min="0" step="0.01" />
+<label>Week 2 overtime rate, blank for plain time-and-a-half</label><input id="ot2" type="number" value="" min="0" step="0.01" />
 <label>Your 401(k) percent of counted pay</label><input id="defer" type="number" value="8" min="0" step="0.5" />
+<label>Plan year</label>
+<select id="year">
+  <option>2023</option><option>2024</option><option>2025</option><option selected>2026</option>
+</select>
+<label>Catch-up</label>
+<select id="catchup">
+  <option value="none">None</option>
+  <option value="50">Age 50 or over</option>
+  <option value="60">Age 60-63</option>
+</select>
+<label>YTD employee 401(k) already deferred</label><input id="ytd" type="number" value="0" min="0" step="0.01" />
 <button type="button" id="go">Calculate</button>
 <div id="out"></div>
 <script>
 const CAP = 40, PEP = 0.10;
+const LIMITS = {
+  2023: { base: 22500, catch50: 7500, catch60: 7500 },
+  2024: { base: 23000, catch50: 7500, catch60: 7500 },
+  2025: { base: 23500, catch50: 7500, catch60: 11250 },
+  2026: { base: 24500, catch50: 8000, catch60: 11250 }
+};
 function money(n) { return n.toLocaleString("en-US", { style: "currency", currency: "USD" }); }
 function num(n) { return Number(n).toLocaleString("en-US", { maximumFractionDigits: 2 }); }
-function paycheck(hours, rate) {
-  const straight = Math.min(hours, CAP);
-  const ot = Math.max(0, hours - CAP);
-  return straight * rate + ot * rate * 1.5;
+function weekPay(hours, rate, otRate) {
+  const straight = Math.min(hours, CAP) * rate;
+  const otHours = Math.max(0, hours - CAP);
+  const used = otRate > 0 ? otRate : rate * 1.5;
+  return straight + otHours * used;
 }
 function calc() {
   const w1 = Number(document.getElementById("w1").value) || 0;
   const w2 = Number(document.getElementById("w2").value) || 0;
   const rate = Number(document.getElementById("rate").value) || 0;
+  const ot1 = Number(document.getElementById("ot1").value) || 0;
+  const ot2 = Number(document.getElementById("ot2").value) || 0;
   const defer = (Number(document.getElementById("defer").value) || 0) / 100;
-  const pay = paycheck(w1, rate) + paycheck(w2, rate);
+  const year = document.getElementById("year").value;
+  const catchup = document.getElementById("catchup").value;
+  const ytd = Number(document.getElementById("ytd").value) || 0;
+  const lim = LIMITS[year];
+  const annual = lim.base + (catchup === "60" ? lim.catch60 : catchup === "50" ? lim.catch50 : 0);
+  const room = Math.max(0, annual - ytd);
+  const pay = weekPay(w1, rate, ot1) + weekPay(w2, rate, ot2);
   const oldHours = w1 + w2;
   const newHours = Math.min(w1, CAP) + Math.min(w2, CAP);
-  const oldCountedPay = oldHours * rate;
-  const newCountedPay = newHours * rate;
+  const oldPay = oldHours * rate;
+  const newPay = newHours * rate;
   const match = Math.min(defer * 0.5, 0.04);
-  const eeOld = oldCountedPay * defer, eeNew = newCountedPay * defer;
-  const erOld = oldCountedPay * match, erNew = newCountedPay * match;
-  const pepOld = oldCountedPay * PEP, pepNew = newCountedPay * PEP;
+  const eeOld = Math.min(oldPay * defer, room);
+  const eeNew = Math.min(newPay * defer, room);
+  const erOld = Math.min(eeOld * 0.5, oldPay * 0.04);
+  const erNew = Math.min(eeNew * 0.5, newPay * 0.04);
+  const pepOld = oldPay * PEP, pepNew = newPay * PEP;
   document.getElementById("out").innerHTML =
     `<table>
-      <tr><th></th><th>Old</th><th>New</th><th>Difference</th></tr>
+      <tr><th></th><th>Old</th><th>New, 40 max each week</th><th>Difference</th></tr>
       <tr><td>Paycheck, overtime still paid</td><td>${money(pay)}</td><td>${money(pay)}</td><td>${money(0)}</td></tr>
       <tr><td>Hours counted for 401(k) and pension</td><td>${num(oldHours)}</td><td>${num(newHours)}</td><td>${num(oldHours - newHours)}</td></tr>
-      <tr><td>Pay counted for 401(k) and pension</td><td>${money(oldCountedPay)}</td><td>${money(newCountedPay)}</td><td>${money(oldCountedPay - newCountedPay)}</td></tr>
-      <tr><td>Your 401(k)</td><td>${money(eeOld)}</td><td>${money(eeNew)}</td><td>${money(eeOld - eeNew)}</td></tr>
+      <tr><td>Pay counted for 401(k) and pension</td><td>${money(oldPay)}</td><td>${money(newPay)}</td><td>${money(oldPay - newPay)}</td></tr>
+      <tr><td>Your 401(k), after the annual limit</td><td>${money(eeOld)}</td><td>${money(eeNew)}</td><td>${money(eeOld - eeNew)}</td></tr>
       <tr><td>Company 401(k)</td><td>${money(erOld)}</td><td>${money(erNew)}</td><td>${money(erOld - erNew)}</td></tr>
       <tr><td>Pension credit, 10% of counted pay</td><td>${money(pepOld)}</td><td>${money(pepNew)}</td><td>${money(pepOld - pepNew)}</td></tr>
     </table>
-    <p>Company match on this entry: ${num(match * 100)}% of counted pay. Half of your contribution, and it cannot go over 4%.</p>
-    <p class="note">Pension credit is the estimated balance added by these hours, not the monthly check.</p>`;
+    <p>${year} employee limit: ${money(annual)}. Already deferred: ${money(ytd)}. Room left before this check: ${money(room)}. Company match rate: ${num(match * 100)}%.</p>
+    <p class="note">Limits: 2023 $22,500, 2024 $23,000, 2025 $23,500, 2026 $24,500. Age 50 catch-up is $7,500 through 2025 and $8,000 in 2026. Age 60-63 catch-up is $11,250 in 2025 and 2026. IRS IR-2025-111. An 86-hour week and a 0-hour week count as 40 for benefits, not 86.</p>`;
 }
 document.getElementById("go").onclick = calc;
 calc();
