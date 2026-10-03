@@ -8,7 +8,7 @@
   body { font-family: Arial, sans-serif; margin: 24px; color: #1a1a1a; }
   h1 { font-size: 22px; }
   label { display: block; margin: 10px 0 4px; font-weight: bold; }
-  input, select { font-size: 16px; padding: 6px; width: 180px; }
+  input, select { font-size: 16px; padding: 6px; width: 200px; }
   button { background: #1F4E79; color: #fff; border: 0; padding: 8px 14px; border-radius: 4px; cursor: pointer; margin-top: 12px; }
   table { border-collapse: collapse; margin-top: 16px; }
   th, td { border: 1px solid #d9d9d9; padding: 6px 10px; text-align: right; }
@@ -19,24 +19,22 @@
 </head>
 <body>
 <h1>Weekly old vs new</h1>
-<p class="note">The paycheck does not change. Overtime is still paid. Hours over 40 in a week do not count toward the 401(k) or the pension. Company 401(k) is half of what you put in, and it stops at 4% of counted pay. Put in 8% to get the full 4%. Put in nothing and the company puts in nothing. Your own deferral also stops at the IRS annual limit.</p>
-<label>Week 1 hours worked</label><input id="w1" type="number" value="86" min="0" step="0.25" />
-<label>Week 2 hours worked</label><input id="w2" type="number" value="0" min="0" step="0.25" />
+<p class="note">Gross uses regular hours at straight time, off-shift hours at time-and-a-half, and overtime at the stub rate. The paycheck is the same old and new. Only hours counted for the 401(k) and pension change, and those hours are capped at 40 a week. Company 401(k) is half of what you put in, up to 4% of counted straight-time pay. The year-to-date box is your 401(k) line, not the company 401k ER line.</p>
+<label>Week 1 regular hours</label><input id="r1" type="number" value="28" min="0" step="0.25" />
+<label>Week 1 off-shift hours</label><input id="s1" type="number" value="12" min="0" step="0.25" />
+<label>Week 1 OT hours</label><input id="o1" type="number" value="23.25" min="0" step="0.25" />
+<label>Week 1 OT rate, blank for plain time-and-a-half</label><input id="ot1" type="number" value="135.46" min="0" step="0.01" />
+<label>Week 2 regular hours</label><input id="r2" type="number" value="33.75" min="0" step="0.25" />
+<label>Week 2 off-shift hours</label><input id="s2" type="number" value="6.25" min="0" step="0.25" />
+<label>Week 2 OT hours</label><input id="o2" type="number" value="14.5" min="0" step="0.25" />
+<label>Week 2 OT rate, blank for plain time-and-a-half</label><input id="ot2" type="number" value="133.82" min="0" step="0.01" />
 <label>Straight-time rate</label><input id="rate" type="number" value="87.54" min="0" step="0.01" />
-<label>Week 1 overtime rate, blank for plain time-and-a-half</label><input id="ot1" type="number" value="" min="0" step="0.01" />
-<label>Week 2 overtime rate, blank for plain time-and-a-half</label><input id="ot2" type="number" value="" min="0" step="0.01" />
-<label>Your 401(k) percent of counted pay</label><input id="defer" type="number" value="8" min="0" step="0.5" />
+<label>Your 401(k) percent of counted pay</label><input id="defer" type="number" value="15" min="0" step="0.5" />
 <label>Plan year</label>
-<select id="year">
-  <option>2023</option><option>2024</option><option>2025</option><option selected>2026</option>
-</select>
+<select id="year"><option>2023</option><option>2024</option><option>2025</option><option selected>2026</option></select>
 <label>Catch-up</label>
-<select id="catchup">
-  <option value="none">None</option>
-  <option value="50">Age 50 or over</option>
-  <option value="60">Age 60-63</option>
-</select>
-<label>YTD employee 401(k) already deferred</label><input id="ytd" type="number" value="0" min="0" step="0.01" />
+<select id="catchup"><option value="none">None</option><option value="50">Age 50 or over</option><option value="60">Age 60-63</option></select>
+<label>YTD employee 401(k) already deferred, not the company match</label><input id="ytd" type="number" value="16787.42" min="0" step="0.01" />
 <button type="button" id="go">Calculate</button>
 <div id="out"></div>
 <script>
@@ -49,18 +47,16 @@ const LIMITS = {
 };
 function money(n) { return n.toLocaleString("en-US", { style: "currency", currency: "USD" }); }
 function num(n) { return Number(n).toLocaleString("en-US", { maximumFractionDigits: 2 }); }
-function weekPay(hours, rate, otRate) {
-  const straight = Math.min(hours, CAP) * rate;
-  const otHours = Math.max(0, hours - CAP);
-  const used = otRate > 0 ? otRate : rate * 1.5;
-  return straight + otHours * used;
-}
 function calc() {
-  const w1 = Number(document.getElementById("w1").value) || 0;
-  const w2 = Number(document.getElementById("w2").value) || 0;
+  const r1 = Number(document.getElementById("r1").value) || 0;
+  const s1 = Number(document.getElementById("s1").value) || 0;
+  const o1 = Number(document.getElementById("o1").value) || 0;
+  const r2 = Number(document.getElementById("r2").value) || 0;
+  const s2 = Number(document.getElementById("s2").value) || 0;
+  const o2 = Number(document.getElementById("o2").value) || 0;
   const rate = Number(document.getElementById("rate").value) || 0;
-  const ot1 = Number(document.getElementById("ot1").value) || 0;
-  const ot2 = Number(document.getElementById("ot2").value) || 0;
+  const ot1 = Number(document.getElementById("ot1").value) || rate * 1.5;
+  const ot2 = Number(document.getElementById("ot2").value) || rate * 1.5;
   const defer = (Number(document.getElementById("defer").value) || 0) / 100;
   const year = document.getElementById("year").value;
   const catchup = document.getElementById("catchup").value;
@@ -68,29 +64,28 @@ function calc() {
   const lim = LIMITS[year];
   const annual = lim.base + (catchup === "60" ? lim.catch60 : catchup === "50" ? lim.catch50 : 0);
   const room = Math.max(0, annual - ytd);
-  const pay = weekPay(w1, rate, ot1) + weekPay(w2, rate, ot2);
+  const off = rate * 1.5;
+  const pay = r1 * rate + s1 * off + o1 * ot1 + r2 * rate + s2 * off + o2 * ot2;
+  const w1 = r1 + s1 + o1, w2 = r2 + s2 + o2;
   const oldHours = w1 + w2;
   const newHours = Math.min(w1, CAP) + Math.min(w2, CAP);
-  const oldPay = oldHours * rate;
-  const newPay = newHours * rate;
-  const match = Math.min(defer * 0.5, 0.04);
+  const oldPay = oldHours * rate, newPay = newHours * rate;
   const eeOld = Math.min(oldPay * defer, room);
   const eeNew = Math.min(newPay * defer, room);
   const erOld = Math.min(eeOld * 0.5, oldPay * 0.04);
   const erNew = Math.min(eeNew * 0.5, newPay * 0.04);
-  const pepOld = oldPay * PEP, pepNew = newPay * PEP;
   document.getElementById("out").innerHTML =
     `<table>
       <tr><th></th><th>Old</th><th>New, 40 max each week</th><th>Difference</th></tr>
-      <tr><td>Paycheck, overtime still paid</td><td>${money(pay)}</td><td>${money(pay)}</td><td>${money(0)}</td></tr>
+      <tr><td>Paycheck</td><td>${money(pay)}</td><td>${money(pay)}</td><td>${money(0)}</td></tr>
       <tr><td>Hours counted for 401(k) and pension</td><td>${num(oldHours)}</td><td>${num(newHours)}</td><td>${num(oldHours - newHours)}</td></tr>
       <tr><td>Pay counted for 401(k) and pension</td><td>${money(oldPay)}</td><td>${money(newPay)}</td><td>${money(oldPay - newPay)}</td></tr>
       <tr><td>Your 401(k), after the annual limit</td><td>${money(eeOld)}</td><td>${money(eeNew)}</td><td>${money(eeOld - eeNew)}</td></tr>
       <tr><td>Company 401(k)</td><td>${money(erOld)}</td><td>${money(erNew)}</td><td>${money(erOld - erNew)}</td></tr>
-      <tr><td>Pension credit, 10% of counted pay</td><td>${money(pepOld)}</td><td>${money(pepNew)}</td><td>${money(pepOld - pepNew)}</td></tr>
+      <tr><td>Pension credit, 10% of counted pay</td><td>${money(oldPay * PEP)}</td><td>${money(newPay * PEP)}</td><td>${money((oldPay - newPay) * PEP)}</td></tr>
     </table>
-    <p>${year} employee limit: ${money(annual)}. Already deferred: ${money(ytd)}. Room left before this check: ${money(room)}. Company match rate: ${num(match * 100)}%.</p>
-    <p class="note">Limits: 2023 $22,500, 2024 $23,000, 2025 $23,500, 2026 $24,500. Age 50 catch-up is $7,500 through 2025 and $8,000 in 2026. Age 60-63 catch-up is $11,250 in 2025 and 2026. IRS IR-2025-111. An 86-hour week and a 0-hour week count as 40 for benefits, not 86.</p>`;
+    <p>Off-shift rate: ${money(off)}. ${year} employee limit: ${money(annual)}. Room left before this check: ${money(room)}.</p>
+    <p class="note">This sample is the 09/14/2026 check. Gross should be $12,891.85. Company 401(k) on the new cap should be $280.13. Your 401(k) on that check is 15% of the 80-hour base, $1,050.49, not 8%.</p>`;
 }
 document.getElementById("go").onclick = calc;
 calc();
