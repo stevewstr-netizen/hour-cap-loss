@@ -14,6 +14,7 @@
   th, td { border: 1px solid #d9d9d9; padding: 6px 10px; text-align: right; }
   th { background: #1F4E79; color: #fff; }
   td:first-child { text-align: left; font-weight: bold; }
+  th.diff, td.diff { background: #F4CCCC; color: #1a1a1a; }
   .note { color: #595959; max-width: 760px; }
 </style>
 </head>
@@ -76,13 +77,13 @@ function calc() {
   const erNew = Math.min(eeNew * 0.5, newPay * 0.04);
   document.getElementById("out").innerHTML =
     `<table>
-      <tr><th></th><th>Old</th><th>New, 40 max each week</th><th>Difference</th></tr>
-      <tr><td>Paycheck</td><td>${money(pay)}</td><td>${money(pay)}</td><td>${money(0)}</td></tr>
-      <tr><td>Hours counted for 401(k) and pension</td><td>${num(oldHours)}</td><td>${num(newHours)}</td><td>${num(oldHours - newHours)}</td></tr>
-      <tr><td>Pay counted for 401(k) and pension</td><td>${money(oldPay)}</td><td>${money(newPay)}</td><td>${money(oldPay - newPay)}</td></tr>
-      <tr><td>Your 401(k), after the annual limit</td><td>${money(eeOld)}</td><td>${money(eeNew)}</td><td>${money(eeOld - eeNew)}</td></tr>
-      <tr><td>Company 401(k)</td><td>${money(erOld)}</td><td>${money(erNew)}</td><td>${money(erOld - erNew)}</td></tr>
-      <tr><td>Pension credit, 10% of counted pay</td><td>${money(oldPay * PEP)}</td><td>${money(newPay * PEP)}</td><td>${money((oldPay - newPay) * PEP)}</td></tr>
+      <tr><th></th><th>Old</th><th>New, 40 max each week</th><th class="diff">Difference</th></tr>
+      <tr><td>Paycheck</td><td>${money(pay)}</td><td>${money(pay)}</td><td class="diff">${money(0)}</td></tr>
+      <tr><td>Hours counted for 401(k) and pension</td><td>${num(oldHours)}</td><td>${num(newHours)}</td><td class="diff">${num(oldHours - newHours)}</td></tr>
+      <tr><td>Pay counted for 401(k) and pension</td><td>${money(oldPay)}</td><td>${money(newPay)}</td><td class="diff">${money(oldPay - newPay)}</td></tr>
+      <tr><td>Your 401(k), after the annual limit</td><td>${money(eeOld)}</td><td>${money(eeNew)}</td><td class="diff">${money(eeOld - eeNew)}</td></tr>
+      <tr><td>Company 401(k)</td><td>${money(erOld)}</td><td>${money(erNew)}</td><td class="diff">${money(erOld - erNew)}</td></tr>
+      <tr><td>Pension credit, 10% of counted pay</td><td>${money(oldPay * PEP)}</td><td>${money(newPay * PEP)}</td><td class="diff">${money((oldPay - newPay) * PEP)}</td></tr>
     </table>
     <p>Off-shift rate: ${money(off)}. ${year} employee limit: ${money(annual)}. Room left before this check: ${money(room)}.</p>
     <p class="note">This sample is the 09/14/2026 check. Gross should be $12,891.85. Company 401(k) on the new cap should be $280.13. Your 401(k) on that check is 15% of the 80-hour base, $1,050.49, not 8%.</p>`;
