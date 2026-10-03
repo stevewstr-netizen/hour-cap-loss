@@ -11,16 +11,17 @@
   input, select { font-size: 16px; padding: 6px; width: 220px; }
   button { background: #1F4E79; color: #fff; border: 0; padding: 8px 14px; border-radius: 4px; cursor: pointer; margin-top: 12px; }
   table { border-collapse: collapse; margin-top: 16px; }
-  th, td { border: 1px solid #d9d9d9; padding: 6px 10px; text-align: right; }
+  th, td { border: 1px solid #1a1a1a; padding: 6px 10px; text-align: right; }
   th { background: #1F4E79; color: #fff; }
   td:first-child { text-align: left; font-weight: bold; }
   th.diff, td.diff { background: #F4CCCC; color: #1a1a1a; }
+  tr.tax td { background: #F4CCCC; border: 2px solid #C00000; }
   .note { color: #595959; max-width: 760px; }
 </style>
 </head>
 <body>
 <h1>Weekly old vs new</h1>
-<p class="note">Gross uses regular hours at straight time, off-shift hours at time-and-a-half, and overtime at the stub rate. The paycheck is the same old and new. Only hours counted for the 401(k) and pension change, and those hours are capped at 40 a week. A smaller pre-tax 401(k) deferral raises taxable income. The tax line is that extra income times your federal bracket plus Colorado's 4.4% flat rate. It does not change Social Security or Medicare.</p>
+<p class="note">Gross uses regular hours at straight time, off-shift hours at time-and-a-half, and overtime at the stub rate. The paycheck is the same old and new. Only hours counted for the 401(k) and pension change. A smaller pre-tax 401(k) deferral raises taxable income. The boxed tax row under pension credit is that extra income times your federal bracket plus Colorado 4.4%. It does not change Social Security or Medicare.</p>
 <label>Week 1 regular hours</label><input id="r1" type="number" value="28" min="0" step="0.25" />
 <label>Week 1 off-shift hours</label><input id="s1" type="number" value="12" min="0" step="0.25" />
 <label>Week 1 OT hours</label><input id="o1" type="number" value="23.25" min="0" step="0.25" />
@@ -44,61 +45,39 @@
 <div id="out"></div>
 <script>
 const CAP = 40, PEP = 0.10;
-const LIMITS = {
-  2023: { base: 22500, catch50: 7500, catch60: 7500 },
-  2024: { base: 23000, catch50: 7500, catch60: 7500 },
-  2025: { base: 23500, catch50: 7500, catch60: 11250 },
-  2026: { base: 24500, catch50: 8000, catch60: 11250 }
-};
-function money(n) { return n.toLocaleString("en-US", { style: "currency", currency: "USD" }); }
-function num(n) { return Number(n).toLocaleString("en-US", { maximumFractionDigits: 2 }); }
-function calc() {
-  const r1 = Number(document.getElementById("r1").value) || 0;
-  const s1 = Number(document.getElementById("s1").value) || 0;
-  const o1 = Number(document.getElementById("o1").value) || 0;
-  const r2 = Number(document.getElementById("r2").value) || 0;
-  const s2 = Number(document.getElementById("s2").value) || 0;
-  const o2 = Number(document.getElementById("o2").value) || 0;
-  const rate = Number(document.getElementById("rate").value) || 0;
-  const ot1 = Number(document.getElementById("ot1").value) || rate * 1.5;
-  const ot2 = Number(document.getElementById("ot2").value) || rate * 1.5;
-  const defer = (Number(document.getElementById("defer").value) || 0) / 100;
-  const fed = (Number(document.getElementById("fed").value) || 0) / 100;
-  const co = Number(document.getElementById("co").value) || 0;
-  const taxRate = fed + co;
-  const year = document.getElementById("year").value;
-  const catchup = document.getElementById("catchup").value;
-  const ytd = Number(document.getElementById("ytd").value) || 0;
-  const lim = LIMITS[year];
-  const annual = lim.base + (catchup === "60" ? lim.catch60 : catchup === "50" ? lim.catch50 : 0);
-  const room = Math.max(0, annual - ytd);
-  const off = rate * 1.5;
-  const pay = r1 * rate + s1 * off + o1 * ot1 + r2 * rate + s2 * off + o2 * ot2;
-  const w1 = r1 + s1 + o1, w2 = r2 + s2 + o2;
-  const oldHours = w1 + w2;
-  const newHours = Math.min(w1, CAP) + Math.min(w2, CAP);
-  const oldPay = oldHours * rate, newPay = newHours * rate;
-  const eeOld = Math.min(oldPay * defer, room);
-  const eeNew = Math.min(newPay * defer, room);
-  const erOld = Math.min(eeOld * 0.5, oldPay * 0.04);
-  const erNew = Math.min(eeNew * 0.5, newPay * 0.04);
-  const taxOld = eeOld * taxRate, taxNew = eeNew * taxRate;
-  document.getElementById("out").innerHTML =
-    `<table>
-      <tr><th></th><th>Old</th><th>New, 40 max each week</th><th class="diff">Difference</th></tr>
-      <tr><td>Paycheck</td><td>${money(pay)}</td><td>${money(pay)}</td><td class="diff">${money(0)}</td></tr>
-      <tr><td>Hours counted for 401(k) and pension</td><td>${num(oldHours)}</td><td>${num(newHours)}</td><td class="diff">${num(oldHours - newHours)}</td></tr>
-      <tr><td>Pay counted for 401(k) and pension</td><td>${money(oldPay)}</td><td>${money(newPay)}</td><td class="diff">${money(oldPay - newPay)}</td></tr>
-      <tr><td>Your 401(k), after the annual limit</td><td>${money(eeOld)}</td><td>${money(eeNew)}</td><td class="diff">${money(eeOld - eeNew)}</td></tr>
-      <tr><td>Company 401(k)</td><td>${money(erOld)}</td><td>${money(erNew)}</td><td class="diff">${money(erOld - erNew)}</td></tr>
-      <tr><td>Income tax saved by the 401(k)</td><td>${money(taxOld)}</td><td>${money(taxNew)}</td><td class="diff">${money(taxOld - taxNew)}</td></tr>
-      <tr><td>Pension credit, 10% of counted pay</td><td>${money(oldPay * PEP)}</td><td>${money(newPay * PEP)}</td><td class="diff">${money((oldPay - newPay) * PEP)}</td></tr>
-    </table>
-    <p>Combined marginal rate: ${num(taxRate * 100)}%. Extra income tax under the new method: ${money(taxOld - taxNew)}. Off-shift rate: ${money(off)}. ${year} employee limit: ${money(annual)}. Room left before this check: ${money(room)}.</p>
-    <p class="note">The red difference on the tax row is extra tax paid now because less pay was deferred. Colorado is 4.4% in 2026. This is a marginal estimate, not a return.</p>`;
+const LIMITS = { 2023:{base:22500,catch50:7500,catch60:7500}, 2024:{base:23000,catch50:7500,catch60:7500}, 2025:{base:23500,catch50:7500,catch60:11250}, 2026:{base:24500,catch50:8000,catch60:11250} };
+function money(n){ return n.toLocaleString("en-US",{style:"currency",currency:"USD"}); }
+function num(n){ return Number(n).toLocaleString("en-US",{maximumFractionDigits:2}); }
+function calc(){
+  const r1=+document.getElementById("r1").value||0, s1=+document.getElementById("s1").value||0, o1=+document.getElementById("o1").value||0;
+  const r2=+document.getElementById("r2").value||0, s2=+document.getElementById("s2").value||0, o2=+document.getElementById("o2").value||0;
+  const rate=+document.getElementById("rate").value||0;
+  const ot1=+document.getElementById("ot1").value||rate*1.5, ot2=+document.getElementById("ot2").value||rate*1.5;
+  const defer=(+document.getElementById("defer").value||0)/100;
+  const fed=(+document.getElementById("fed").value||0)/100, co=+document.getElementById("co").value||0, taxRate=fed+co;
+  const year=document.getElementById("year").value, catchup=document.getElementById("catchup").value, ytd=+document.getElementById("ytd").value||0;
+  const lim=LIMITS[year];
+  const annual=lim.base+(catchup==="60"?lim.catch60:catchup==="50"?lim.catch50:0);
+  const room=Math.max(0,annual-ytd), off=rate*1.5;
+  const pay=r1*rate+s1*off+o1*ot1+r2*rate+s2*off+o2*ot2;
+  const w1=r1+s1+o1, w2=r2+s2+o2, oldHours=w1+w2, newHours=Math.min(w1,40)+Math.min(w2,40);
+  const oldPay=oldHours*rate, newPay=newHours*rate;
+  const eeOld=Math.min(oldPay*defer,room), eeNew=Math.min(newPay*defer,room);
+  const erOld=Math.min(eeOld*0.5,oldPay*0.04), erNew=Math.min(eeNew*0.5,newPay*0.04);
+  const taxOld=eeOld*taxRate, taxNew=eeNew*taxRate;
+  document.getElementById("out").innerHTML=`<table>
+    <tr><th></th><th>Old</th><th>New, 40 max each week</th><th class="diff">Difference</th></tr>
+    <tr><td>Paycheck</td><td>${money(pay)}</td><td>${money(pay)}</td><td class="diff">${money(0)}</td></tr>
+    <tr><td>Hours counted for 401(k) and pension</td><td>${num(oldHours)}</td><td>${num(newHours)}</td><td class="diff">${num(oldHours-newHours)}</td></tr>
+    <tr><td>Pay counted for 401(k) and pension</td><td>${money(oldPay)}</td><td>${money(newPay)}</td><td class="diff">${money(oldPay-newPay)}</td></tr>
+    <tr><td>Your 401(k), after the annual limit</td><td>${money(eeOld)}</td><td>${money(eeNew)}</td><td class="diff">${money(eeOld-eeNew)}</td></tr>
+    <tr><td>Company 401(k)</td><td>${money(erOld)}</td><td>${money(erNew)}</td><td class="diff">${money(erOld-erNew)}</td></tr>
+    <tr><td>Pension credit, 10% of counted pay</td><td>${money(oldPay*PEP)}</td><td>${money(newPay*PEP)}</td><td class="diff">${money((oldPay-newPay)*PEP)}</td></tr>
+    <tr class="tax"><td>Income tax from the 401(k) difference</td><td>${money(taxOld)}</td><td>${money(taxNew)}</td><td class="diff">${money(taxOld-taxNew)}</td></tr>
+  </table>
+  <p>Combined marginal rate: ${num(taxRate*100)}%. The boxed row is extra income tax under the new method. Off-shift rate: ${money(off)}. ${year} employee limit: ${money(annual)}. Room left before this check: ${money(room)}.</p>`;
 }
-document.getElementById("go").onclick = calc;
-calc();
+document.getElementById("go").onclick=calc; calc();
 </script>
 </body>
 </html>
