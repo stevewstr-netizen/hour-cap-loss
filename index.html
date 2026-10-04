@@ -21,7 +21,7 @@
 </head>
 <body>
 <h1>Weekly old vs new</h1>
-<p class="note">Off-shift hours count toward the 401(k) and pension at straight time. The 1.5 pay does not. Overtime hours are still paid, but they do not count. Hours you do not work do not count, and they do not create overtime. The paycheck is the same old and new. Enter the 401(k) amount from the check. The federal bracket is looked up from year-to-date taxable wages. Colorado 4.4% is added.</p>
+<p class="note">401(k) and pension use straight-time pay only. Off-shift hours count. The 1.5 paid on those hours does not. Overtime hours are paid and do not count. Hours you do not work do not count and do not create overtime. Company 401(k) is half of what you put in, up to 4% of straight-time counted pay. Enter either your percent or the dollar amount on the check. The federal bracket comes from the tax table.</p>
 <label>Week 1 regular hours worked</label><input id="r1" type="number" value="0" min="0" step="0.25" />
 <label>Week 1 off-shift hours worked</label><input id="s1" type="number" value="0" min="0" step="0.25" />
 <label>Week 1 OT hours worked</label><input id="o1" type="number" value="0" min="0" step="0.25" />
@@ -31,7 +31,8 @@
 <label>Week 2 OT hours worked</label><input id="o2" type="number" value="0" min="0" step="0.25" />
 <label>Week 2 OT rate, blank for plain time-and-a-half</label><input id="ot2" type="number" value="" min="0" step="0.01" />
 <label>Straight-time rate</label><input id="rate" type="number" value="0" min="0" step="0.01" />
-<label>Employee 401(k) on this check</label><input id="ee" type="number" value="0" min="0" step="0.01" />
+<label>Your 401(k) percent of straight-time counted pay</label><input id="defer" type="number" value="0" min="0" step="0.5" />
+<label>Or employee 401(k) dollars on this check</label><input id="ee" type="number" value="0" min="0" step="0.01" />
 <label>Filing status on the check</label>
 <select id="status"><option value="single">Single</option><option value="joint">Married filing jointly</option></select>
 <label>YTD federal taxable wages, including this check</label><input id="taxable" type="number" value="0" min="0" step="0.01" />
@@ -61,6 +62,7 @@ function calc(){
   const rate=+document.getElementById("rate").value||0;
   const ot1=+document.getElementById("ot1").value||rate*1.5, ot2=+document.getElementById("ot2").value||rate*1.5;
   const eeCheck=+document.getElementById("ee").value||0;
+  const typed=(+document.getElementById("defer").value||0)/100;
   const status=document.getElementById("status").value;
   const taxable=+document.getElementById("taxable").value||0;
   const year=document.getElementById("year").value, catchup=document.getElementById("catchup").value, ytd=+document.getElementById("ytd").value||0;
@@ -72,22 +74,23 @@ function calc(){
   const oldHours=r1+s1+o1+r2+s2+o2;
   const newHours=r1+s1+r2+s2;
   const oldPay=oldHours*rate, newPay=newHours*rate;
-  const defer=newPay>0?eeCheck/newPay:0;
-  const eeNew=Math.min(eeCheck, room);
+  const defer=eeCheck>0 && newPay>0 ? eeCheck/newPay : typed;
+  const eeNew=Math.min(eeCheck>0 ? eeCheck : newPay*defer, room);
   const eeOld=Math.min(oldPay*defer, room);
-  const erOld=Math.min(eeOld*0.5, oldPay*0.04), erNew=Math.min(eeNew*0.5, newPay*0.04);
+  const erNew=Math.min(eeNew*0.5, newPay*0.04);
+  const erOld=Math.min(eeOld*0.5, oldPay*0.04);
   const taxOld=eeOld*taxRate, taxNew=eeNew*taxRate;
   document.getElementById("out").innerHTML=`<table>
-    <tr><th></th><th>Old, all hours at straight time</th><th>New, off-shift counts, OT does not</th><th class="diff">Difference</th></tr>
+    <tr><th></th><th>Old, all hours at straight time</th><th>New, off-shift in, OT out</th><th class="diff">Difference</th></tr>
     <tr><td>Paycheck, off-shift still paid at 1.5</td><td>${money(pay)}</td><td>${money(pay)}</td><td class="diff">${money(0)}</td></tr>
-    <tr><td>Hours counted for 401(k) and pension</td><td>${num(oldHours)}</td><td>${num(newHours)}</td><td class="diff">${num(oldHours-newHours)}</td></tr>
-    <tr><td>Pay counted, straight time only</td><td>${money(oldPay)}</td><td>${money(newPay)}</td><td class="diff">${money(oldPay-newPay)}</td></tr>
+    <tr><td>Hours counted</td><td>${num(oldHours)}</td><td>${num(newHours)}</td><td class="diff">${num(oldHours-newHours)}</td></tr>
+    <tr><td>401(k) and pension pay, straight time</td><td>${money(oldPay)}</td><td>${money(newPay)}</td><td class="diff">${money(oldPay-newPay)}</td></tr>
     <tr><td>Your 401(k)</td><td>${money(eeOld)}</td><td>${money(eeNew)}</td><td class="diff">${money(eeOld-eeNew)}</td></tr>
     <tr><td>Company 401(k)</td><td>${money(erOld)}</td><td>${money(erNew)}</td><td class="diff">${money(erOld-erNew)}</td></tr>
-    <tr><td>Pension credit, 10% of counted straight pay</td><td>${money(oldPay*PEP)}</td><td>${money(newPay*PEP)}</td><td class="diff">${money((oldPay-newPay)*PEP)}</td></tr>
+    <tr><td>Pension credit, 10% of straight pay</td><td>${money(oldPay*PEP)}</td><td>${money(newPay*PEP)}</td><td class="diff">${money((oldPay-newPay)*PEP)}</td></tr>
     <tr class="tax"><td>Income tax from the 401(k) difference</td><td>${money(taxOld)}</td><td>${money(taxNew)}</td><td class="diff">${money(taxOld-taxNew)}</td></tr>
   </table>
-  <p>Off-shift hours counted: ${num(s1+s2)} at straight time, not at 1.5. OT hours not counted: ${num(o1+o2)}. Deferral rate from this check: ${num(defer*100)}%. Federal bracket: ${num(fed*100)}% ${status}. Combined with Colorado: ${num(taxRate*100)}%.</p>`;
+  <p>Off-shift counted at straight time: ${num(s1+s2)} hours. OT not counted: ${num(o1+o2)}. Deferral rate used: ${num(defer*100)}%. Company match rate: ${num(Math.min(defer*0.5,0.04)*100)}%. Federal bracket: ${num(fed*100)}% ${status}.</p>`;
 }
 document.getElementById("go").onclick=calc; calc();
 </script>
