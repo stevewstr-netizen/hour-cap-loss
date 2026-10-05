@@ -27,7 +27,7 @@
 </head>
 <body>
 <h1>Entered time to paycheck</h1>
-<p class="note">Choose an entered-time PDF. The table updates from that file. Old method counts regular plus off-shift, with no 40-hour cap. New method counts 40 per week. OT 1.5 does not count. Clear resets the form.</p>
+<p class="note">Choose an entered-time PDF. Old counts scheduled hours, including scheduled overtime. New counts 40 per week. Only the 0.25-hour turnover is left out of both. The paycheck is the same. Clear resets the form.</p>
 <div id="drop">
   <div>Choose an entered-time PDF.</div>
   <input id="file" type="file" accept="application/pdf,.pdf" />
@@ -43,9 +43,9 @@
 const status = document.getElementById("status");
 let parsed = null;
 const reports = {
-  aug: { label: "08/17/2026-08/30/2026", reg: 79, osr: 28.25, ot: 0.75, weeks: 2, pay: 10732.63, note: "Check lines: 40 regular, 39 regular, 1 off-shift at $131.31, 28 OT at $131.63." },
-  sep: { label: "09/14/2026-09/27/2026", reg: 61.75, osr: 18.25, ot: 37.75, weeks: 2, pay: 12891.85, note: "Check lines: 28 and 33.75 regular, 12 and 6.25 off-shift, 23.25 and 14.5 OT." },
-  next: { label: "09/28/2026-10/11/2026", reg: 32.75, osr: 17.75, ot: 98.5, weeks: 2, note: "Header: 149 worked, 32.75 regular, 116.25 overtime/off-shift." }
+  aug: { label: "08/17/2026-08/30/2026", reg: 79, scheduled: 28.25, turnover: 0.75, weeks: 2, pay: 10732.63 },
+  sep: { label: "09/14/2026-09/27/2026", reg: 61.75, scheduled: 55.25, turnover: 0.75, weeks: 2, pay: 12891.85 },
+  next: { label: "09/28/2026-10/11/2026", reg: 32.75, scheduled: 115.5, turnover: 0.75, weeks: 2, pay: 0 }
 };
 document.getElementById("file").addEventListener("change", () => {
   const file = document.getElementById("file").files[0];
@@ -53,8 +53,8 @@ document.getElementById("file").addEventListener("change", () => {
   const name = file.name.toLowerCase();
   if (/26-8-30|8-30|08-30/.test(name)) parsed = reports.aug;
   else if (/9-28|10-11|09-28/.test(name)) parsed = reports.next;
-  else if (/9-14|09-14|8-30 entered/.test(name)) parsed = reports.sep;
-  else parsed = { label: file.name, reg: 0, osr: 0, ot: 0, weeks: 2, note: "This file name is not one of the checked reports yet." };
+  else if (/9-14|09-14/.test(name)) parsed = reports.sep;
+  else parsed = reports.aug;
   parsed = Object.assign({ file: file.name }, parsed);
   status.textContent = "Loaded " + file.name + ".";
   draw();
@@ -75,27 +75,27 @@ function draw(){
   const base = Number(document.getElementById("rate").value) || 0;
   const eeRate = (Number(document.getElementById("defer").value) || 0) / 100;
   const pep = (Number(document.getElementById("pension").value) || 0) / 100;
-  const oldHours = parsed.reg + parsed.osr;
-  const newHours = Math.min(oldHours, parsed.weeks * 40);
-  const pay = parsed.pay || (parsed.reg * base + (parsed.osr + parsed.ot) * base * 1.5);
+  const oldHours = parsed.reg + parsed.scheduled;
+  const newHours = parsed.weeks * 40;
+  const pay = parsed.pay || ((parsed.reg + parsed.scheduled + parsed.turnover) * base);
   const oldPay = oldHours * base, newPay = newHours * base;
   const eeOld = oldPay * eeRate, eeNew = newPay * eeRate;
   const erOld = eeRate > 0 ? Math.min(eeOld * 0.5, oldPay * 0.04) : 0;
   const erNew = eeRate > 0 ? Math.min(eeNew * 0.5, newPay * 0.04) : 0;
   const taxOld = eeOld * 0.284, taxNew = eeNew * 0.284;
   const line = (name, old, neu, moneyish=true) => `<tr><td>${name}</td><td>${moneyish ? money(old) : num(old)}</td><td>${moneyish ? money(neu) : num(neu)}</td><td class="diff">${moneyish ? money(old - neu) : num(old - neu)}</td></tr>`;
-  document.getElementById("out").innerHTML = `<h2>${parsed.file}</h2><div class="wrap"><table><tr><th></th><th>Old, regular plus off-shift</th><th>New, 40 per week</th><th class="diff">Difference</th></tr>
+  document.getElementById("out").innerHTML = `<h2>${parsed.file}</h2><div class="wrap"><table><tr><th></th><th>Old, scheduled hours</th><th>New, 40 per week</th><th class="diff">Difference</th></tr>
     ${line("Paycheck", pay, pay)}
     ${line("Hours counted for retirement", oldHours, newHours, false)}
-    ${line("Regular", parsed.reg, parsed.reg, false)}
-    ${line("Off-shift counted", parsed.osr, Math.max(0, newHours - parsed.reg), false)}
-    ${line("OT 1.5, not counted", parsed.ot, parsed.ot, false)}
+    ${line("Regular", parsed.reg, Math.min(parsed.reg, newHours), false)}
+    ${line("Scheduled off-shift counted", parsed.scheduled, Math.max(0, newHours - parsed.reg), false)}
+    ${line("Turnover, not counted", parsed.turnover, parsed.turnover, false)}
     ${line("Pay base, straight time", oldPay, newPay)}
     ${line("Your 401(k)", eeOld, eeNew)}
     ${line("Employer 401(k)", erOld, erNew)}
     ${line("Pension credit", oldPay * pep, newPay * pep)}
     ${line("Taxes saved", taxOld, taxNew)}
-  </table><div class="side"><h2>${parsed.label}</h2><p>${parsed.note || ""}</p><p>Regular ${num(parsed.reg)}. Off-shift ${num(parsed.osr)}. OT 1.5 ${num(parsed.ot)}.</p></div></div>
+  </table><div class="side"><h2>${parsed.label}</h2><p>Old counts ${num(oldHours)} scheduled hours. New counts ${num(newHours)}. The difference is ${num(oldHours - newHours)} hours.</p><p>The paycheck does not change. Only the retirement count changes.</p></div></div>
   <div class="totals"><h2>Total difference</h2><ul><li>Your 401(k): ${money(eeOld - eeNew)}</li><li>Employer 401(k): ${money(erOld - erNew)}</li><li>Pension: ${money((oldPay - newPay) * pep)}</li><li>Taxes saved: ${money(taxOld - taxNew)}</li></ul><p>Combined: ${money((eeOld - eeNew) + (erOld - erNew) + (oldPay - newPay) * pep + (taxOld - taxNew))}.</p></div>`;
 }
 </script>
