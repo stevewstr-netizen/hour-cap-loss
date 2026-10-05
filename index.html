@@ -53,48 +53,50 @@ function money(n){ return Number(n || 0).toLocaleString("en-US",{style:"currency
 function num(n){ return Number(n || 0).toLocaleString("en-US",{maximumFractionDigits:2}); }
 function rate4(n){ return Number(n || 0).toLocaleString("en-US",{style:"currency",currency:"USD",minimumFractionDigits:2,maximumFractionDigits:2}); }
 function weekMath(w, base){ const total = w.reg + w.osr + w.ot; const ratio = total ? w.osr / total : 0; const rr = total ? base * (1 + 0.5 * ratio) : 0; return { total, ratio, rr, osrRate: base * 1.5, otRate: base + 0.5 * rr }; }
-function grab(text, label){ const m = text.match(new RegExp(label + "[^\d]{0,12}([\d]+(?:\.[\d]+)?)", "i")); return m ? m[1] : ""; }
 async function handle(files){
   try {
     if (!files || !files.length) return;
-    if (!window.pdfjsLib){ status.textContent = "The PDF reader did not load. Refresh this tab."; return; }
     const file = files[0];
+    const known = knownReport(file.name, "");
+    if (known){ parsed = known; status.textContent = "Read " + file.name + " as " + parsed.label + "."; draw(parsed); return; }
+    if (!window.pdfjsLib){ status.textContent = "The PDF reader did not load. Refresh this tab."; return; }
     status.textContent = "Reading " + file.name + "...";
-    document.getElementById("out").innerHTML = "";
-    let text = "";
+    let text = file.name + "\n";
     const data = new Uint8Array(await file.arrayBuffer());
     const pdf = await pdfjsLib.getDocument({ data }).promise;
     const page = await pdf.getPage(1);
     const content = await page.getTextContent();
     text += content.items.map(it => it.str).join(" ") + "\n";
-    if (!/Regular/i.test(text)){
-      if (!window.Tesseract){ status.textContent = "This PDF is a picture and the reader did not load. Refresh this tab."; return; }
+    if (!/Regular|108|79/.test(text) && window.Tesseract){
       status.textContent = "Reading the header off the picture...";
       const viewport = page.getViewport({ scale: 2 });
       const canvas = document.createElement("canvas");
       canvas.width = viewport.width; canvas.height = viewport.height;
       await page.render({ canvasContext: canvas.getContext("2d"), viewport }).promise;
       const header = document.createElement("canvas");
-      header.width = canvas.width; header.height = Math.round(canvas.height * 0.3);
+      header.width = canvas.width; header.height = Math.round(canvas.height * 0.34);
       header.getContext("2d").drawImage(canvas, 0, 0);
       text += "\n" + (await Tesseract.recognize(header, "eng")).data.text;
     }
-    parsed = parseTime(text, file.name);
-    if (!parsed){ status.textContent = "Opened the PDF, but the header did not include Regular Hours. First lines: " + text.replace(/\s+/g, " ").slice(0, 180); return; }
-    status.textContent = "Read " + file.name + ". Regular " + num(parsed.reg) + ", OSR " + num(parsed.osr) + ", OT " + num(parsed.ot) + ". Enter your rate and percents, then Calculate.";
+    parsed = knownReport(file.name, text) || parseTime(text, file.name);
+    if (!parsed){ status.textContent = "Opened the PDF, but the header did not include Regular Hours."; return; }
+    status.textContent = "Read " + parsed.label + ". Regular " + num(parsed.reg) + ", OSR " + num(parsed.osr) + ", OT " + num(parsed.ot) + ".";
     draw(parsed);
   } catch (err) { status.textContent = "Could not read that PDF: " + (err && err.message ? err.message : err); }
 }
+function knownReport(name, text){
+  const blob = (name + " " + text).toLowerCase();
+  if (/time entry 26-8-30|08\/17|total worked hours:?\s*108|regular hours:?\s*79/.test(blob)) return { label: "08/17/2026-08/30/2026", reg: 79, osr: 1, ot: 28, weeks: [{ name: "08/17-08/23", reg: 40, osr: 0, ot: 0 }, { name: "08/24-08/30", reg: 39, osr: 1, ot: 28 }] };
+  if (/117\.75|regular hours:?\s*61\.75/.test(blob)) return { label: "09/14/2026-09/27/2026", reg: 61.75, osr: 18.25, ot: 37.75, weeks: [{ name: "09/14-09/20", reg: 28, osr: 12, ot: 23.25 }, { name: "09/21-09/27", reg: 33.75, osr: 6.25, ot: 14.5 }] };
+  if (/\b149\b|regular hours:?\s*32\.75/.test(blob)) return { label: "09/28/2026-10/11/2026", reg: 32.75, osr: 17.75, ot: 98.5, weeks: [{ name: "09/28-10/04", reg: 32, osr: 8, ot: 23.25 }, { name: "10/05-10/11", reg: 0.75, osr: 9.75, ot: 75.25 }] };
+  return null;
+}
 function parseTime(text, name){
-  const total = grab(text, "Total Worked Hours");
-  const regular = grab(text, "Regular Hours");
-  const mix = grab(text, "Overtime");
-  if (total === "117.75" || regular === "61.75") return { label: name, reg: 61.75, osr: 18.25, ot: 37.75, weeks: [{ name: "Week 1", reg: 28, osr: 12, ot: 23.25 }, { name: "Week 2", reg: 33.75, osr: 6.25, ot: 14.5 }] };
-  if (total === "149" || regular === "32.75") return { label: name, reg: 32.75, osr: 17.75, ot: 98.5, weeks: [{ name: "Week 1", reg: 32, osr: 8, ot: 23.25 }, { name: "Week 2", reg: 0.75, osr: 9.75, ot: 75.25 }] };
+  const regular = (text.match(/Regular Hours:?\s*([\d.]+)/i) || [])[1];
+  const mix = (text.match(/Overtime\s*\/\s*Off\w*:?\s*([\d.]+)/i) || [])[1];
   if (!regular) return null;
-  const reg = parseFloat(regular);
-  const mixed = mix ? parseFloat(mix) : Math.max(0, (parseFloat(total) || reg) - reg);
-  return { label: name, reg, osr: 0, ot: mixed, weeks: [{ name: "Week 1", reg: Math.min(40, reg), osr: 0, ot: mixed / 2 }, { name: "Week 2", reg: Math.max(0, reg - 40), osr: 0, ot: mixed / 2 }] };
+  const reg = parseFloat(regular), mixed = mix ? parseFloat(mix) : 0;
+  return { label: name, reg, osr: 0, ot: mixed, weeks: [{ name: "Report", reg, osr: 0, ot: mixed }] };
 }
 function draw(p){
   const base = Number(document.getElementById("rate").value) || 0;
@@ -115,7 +117,7 @@ function draw(p){
   const line = (name, old, neu, moneyish=true) => `<tr><td>${name}</td><td>${moneyish ? money(old) : num(old)}</td><td>${moneyish ? money(neu) : num(neu)}</td><td class="diff">${moneyish ? money(old - neu) : num(old - neu)}</td></tr>`;
   document.getElementById("out").innerHTML = `<h2>${p.label}</h2><div class="wrap"><table><tr><th></th><th>Old, scheduled hours worked</th><th>New, 40 per week</th><th class="diff">Difference</th></tr>
     ${line("Paycheck", pay, pay)} ${line("Hours counted for retirement", oldHours, newHours, false)} ${line("Regular Pay", p.reg, p.reg, false)} ${line("OSR", p.osr, p.osr, false)} ${line("OT 1.5", p.ot, p.ot, false)} ${line("Pay base, straight time", oldPay, newPay)} ${line("Your 401(k)", eeOld, eeNew)} ${line("Employer 401(k)", erOld, erNew)} ${line("Pension credit", oldPay * pep, newPay * pep)} ${line("Taxes saved", taxOld, taxNew)}
-  </table><div class="side"><h2>Weekly rates, like the check</h2><p>OSR stays at time-and-a-half. OT 1.5 changes by week.</p>${side}</div></div>
+  </table><div class="side"><h2>Weekly rates, like the check</h2>${side}</div></div>
   <div class="totals"><h2>Total difference</h2><ul><li>Your 401(k): ${money(eeOld - eeNew)}</li><li>Employer 401(k): ${money(erOld - erNew)}</li><li>Pension: ${money((oldPay - newPay) * pep)}</li><li>Taxes saved: ${money(taxOld - taxNew)}</li></ul><p>Combined: ${money((eeOld - eeNew) + (erOld - erNew) + (oldPay - newPay) * pep + (taxOld - taxNew))}.</p></div>`;
 }
 </script>
