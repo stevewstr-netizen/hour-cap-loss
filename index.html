@@ -28,7 +28,7 @@
 </head>
 <body>
 <h1>Entered time to paycheck</h1>
-<p class="note">Drop the entered-time PDF. Regular Pay is on the schedule. Daily Schedule Deviation is outside the scheduled hours, so it is OSR. Weekly OT over 40 and daily OT over 12 are OT 1.5. Old counts the scheduled hours worked. New counts those hours up to 40, and the part outside the shift is OSR. You enter the rate, 401(k) percent, and pension percent.</p>
+<p class="note">Drop the entered-time PDF. The page uses the report header, then splits Daily Schedule Deviation into OSR. Regular Pay is on the schedule. Deviation is outside the scheduled hours. Weekly and daily OT are OT 1.5. Old counts the scheduled hours worked. New counts 40 per week. Enter the rate, 401(k) percent, and pension percent.</p>
 <div id="drop">
   <div>Choose an entered-time PDF.</div>
   <input id="file" type="file" accept="application/pdf,.pdf" />
@@ -47,7 +47,12 @@ document.getElementById("file").addEventListener("change", () => handle(document
 document.getElementById("go").addEventListener("click", () => parsed ? draw(parsed) : status.textContent = "Choose an entered-time PDF first.");
 function money(n){ return Number(n || 0).toLocaleString("en-US",{style:"currency",currency:"USD"}); }
 function num(n){ return Number(n || 0).toLocaleString("en-US",{maximumFractionDigits:2}); }
-function fix(raw){ let n = parseFloat(String(raw).replace(/,/g, "")); if (isNaN(n) || n <= 0) return 0; if (n > 24) n = n / 100; return n > 24 ? 0 : n; }
+function hours(raw){
+  let n = parseFloat(String(raw).replace(/,/g, ""));
+  if (isNaN(n) || n <= 0) return 0;
+  if (n > 16) n = n / 100;
+  return n > 16 ? 0 : n;
+}
 async function handle(files){
   try {
     if (!files || !files.length){ status.textContent = "No file selected."; return; }
@@ -63,14 +68,14 @@ async function handle(files){
         const page = await pdf.getPage(i);
         const content = await page.getTextContent();
         text += content.items.map(it => it.str).join(" ") + "\n";
-        const viewport = page.getViewport({ scale: 1.7 });
+        const viewport = page.getViewport({ scale: 1.8 });
         const canvas = document.createElement("canvas");
         canvas.width = viewport.width; canvas.height = viewport.height;
         await page.render({ canvasContext: canvas.getContext("2d"), viewport }).promise;
         images.push(canvas);
       }
     }
-    if (!/Daily Schedule Deviation|Regular Pay|Total Worked Hours/i.test(text) && window.Tesseract){
+    if (!/Total Worked Hours/i.test(text) && window.Tesseract){
       text = "";
       for (let i = 0; i < images.length; i++){
         status.textContent = "Reading picture page " + (i + 1) + " of " + images.length + "...";
@@ -79,37 +84,39 @@ async function handle(files){
       }
     }
     parsed = parseTime(text);
-    if (!parsed){ status.textContent = "Opened the PDF, but found no Regular Pay or Daily Schedule Deviation lines."; return; }
-    status.textContent = "Read regular " + num(parsed.reg) + ", OSR " + num(parsed.osr) + ", OT " + num(parsed.ot) + ". Enter your rate and percents, then Calculate.";
+    if (!parsed){ status.textContent = "Opened the PDF, but could not find the hour header."; return; }
+    status.textContent = "Header: regular " + num(parsed.reg) + ", OSR " + num(parsed.osr) + ", OT " + num(parsed.ot) + ". Enter your rate and percents, then Calculate.";
     draw(parsed);
   } catch (err) {
     status.textContent = "Could not read that PDF: " + (err && err.message ? err.message : err);
   }
 }
 function parseTime(text){
-  let reg = 0, osr = 0, ot = 0;
-  const line = /([\d.]+)\s+(Regular\s*Pay|Daily Schedule Deviation|Off\s*sh\w+|FLSA\s*OT|Weekly OT|Daily OT)/ig;
+  const header = text.match(/Total Worked Hours:?\s*([\d.]+)[\s\S]{0,40}?Regular Hours:?\s*([\d.]+)[\s\S]{0,40}?Overtime\s*\/\s*Off\w*:?\s*([\d.]+)/i);
+  const regHeader = header ? parseFloat(header[2]) : 0;
+  const mix = header ? parseFloat(header[3]) : 0;
+  const total = header ? parseFloat(header[1]) : 0;
+  let osr = 0;
+  const deviation = /([\d.]+)[^\n]{0,24}(?:Daily Schedule Deviation|Off\s*sh\w+|Ofshit|Offshit)/ig;
   let m;
-  while ((m = line.exec(text))){
-    const qty = fix(m[1]);
-    if (!qty) continue;
-    if (/regular/i.test(m[2])) reg += qty;
-    else if (/daily schedule|off/i.test(m[2])) osr += qty;
-    else ot += qty;
+  while ((m = deviation.exec(text))){
+    const qty = hours(m[1]);
+    if (qty) osr += qty;
   }
+  if (mix && osr > mix) osr = 0;
+  const reg = regHeader;
+  const ot = mix ? Math.max(0, mix - osr) : 0;
   if (!(reg + osr + ot)) return null;
-  return { reg, osr, ot };
+  const weeks = /Start Date:[\s\S]{0,40}End Date:/i.test(text) ? 2 : 1;
+  return { reg, osr, ot, total: total || reg + osr + ot, weeks };
 }
 function draw(p){
   const base = Number(document.getElementById("rate").value) || 0;
   const eeRate = (Number(document.getElementById("defer").value) || 0) / 100;
   const pep = (Number(document.getElementById("pension").value) || 0) / 100;
-  const scheduled = p.reg + p.osr;
-  const oldHours = scheduled;
-  const newHours = Math.min(40, scheduled);
-  const newOsr = Math.min(p.osr, newHours);
-  const newReg = newHours - newOsr;
-  const ratio = (scheduled + p.ot) ? p.osr / (scheduled + p.ot) : 0;
+  const oldHours = p.reg + p.osr + p.ot;
+  const newHours = Math.min(p.weeks * 40, p.reg + p.osr);
+  const ratio = oldHours ? p.osr / oldHours : 0;
   const otRate = base + 0.5 * base * (1 + 0.5 * ratio);
   const pay = p.reg * base + p.osr * base * 1.5 + p.ot * (base ? otRate : 0);
   const oldPay = oldHours * base, newPay = newHours * base;
@@ -118,18 +125,18 @@ function draw(p){
   const erNew = eeRate > 0 ? Math.min(eeNew * 0.5, newPay * 0.04) : 0;
   const taxOld = eeOld * 0.284, taxNew = eeNew * 0.284;
   const line = (name, old, neu, moneyish=true) => `<tr><td>${name}</td><td>${moneyish ? money(old) : num(old)}</td><td>${moneyish ? money(neu) : num(neu)}</td><td class="diff">${moneyish ? money(old - neu) : num(old - neu)}</td></tr>`;
-  document.getElementById("out").innerHTML = `<div class="wrap"><table><tr><th></th><th>Old, scheduled hours worked</th><th>New, 40 max</th><th class="diff">Difference</th></tr>
+  document.getElementById("out").innerHTML = `<div class="wrap"><table><tr><th></th><th>Old, scheduled hours worked</th><th>New, 40 per week</th><th class="diff">Difference</th></tr>
     ${line("Paycheck", pay, pay)}
     ${line("Hours counted for retirement", oldHours, newHours, false)}
-    ${line("Regular Pay", p.reg, newReg, false)}
-    ${line("OSR, Daily Schedule Deviation", p.osr, newOsr, false)}
-    ${line("OT 1.5, not counted in the new method", p.ot, p.ot, false)}
+    ${line("Regular Pay", p.reg, Math.min(p.reg, newHours), false)}
+    ${line("OSR, Daily Schedule Deviation", p.osr, Math.min(p.osr, Math.max(0, newHours - p.reg)), false)}
+    ${line("OT 1.5, over 40", p.ot, p.ot, false)}
     ${line("Pay base, straight time", oldPay, newPay)}
     ${line("Your 401(k)", eeOld, eeNew)}
     ${line("Employer 401(k)", erOld, erNew)}
     ${line("Pension credit", oldPay * pep, newPay * pep)}
     ${line("Taxes saved", taxOld, taxNew)}
-  </table><div class="side"><h2>Read from the PDF</h2><p>Regular Pay ${num(p.reg)} is on the schedule. Daily Schedule Deviation ${num(p.osr)} is outside the scheduled hours, so it is OSR. OT 1.5 is ${num(p.ot)}.</p><p>Old counts the scheduled hours worked, ${num(oldHours)}. New counts ${num(newHours)}. Hours over 40 stay OT 1.5 and do not count.</p></div></div>
+  </table><div class="side"><h2>Read from the report header</h2><p>Regular ${num(p.reg)}. Daily Schedule Deviation OSR ${num(p.osr)}. OT 1.5 ${num(p.ot)}. Report total ${num(p.total)}.</p><p>Old counts the scheduled hours worked. New counts 40 per week. Deviation inside those hours is OSR. Hours over 40 are OT 1.5 and do not count in the new method.</p></div></div>
   <div class="totals"><h2>Total difference</h2><ul><li>Your 401(k): ${money(eeOld - eeNew)}</li><li>Employer 401(k): ${money(erOld - erNew)}</li><li>Pension: ${money((oldPay - newPay) * pep)}</li><li>Taxes saved: ${money(taxOld - taxNew)}</li></ul><p>Combined: ${money((eeOld - eeNew) + (erOld - erNew) + (oldPay - newPay) * pep + (taxOld - taxNew))}.</p></div>`;
 }
 </script>
