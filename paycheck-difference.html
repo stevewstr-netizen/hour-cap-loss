@@ -21,14 +21,14 @@
   th { background: #1F4E79; color: #fff; }
   td:first-child, th:first-child { text-align: left; }
   th.diff, td.diff { background: #F4CCCC; }
-  .side { max-width: 520px; background: #f7f7f7; border: 1px solid #1a1a1a; padding: 12px 14px; margin-top: 16px; }
+  .side { max-width: 540px; background: #f7f7f7; border: 1px solid #1a1a1a; padding: 12px 14px; margin-top: 16px; }
   .note { color: #595959; max-width: 1040px; }
   .totals { margin-top: 18px; max-width: 540px; }
 </style>
 </head>
 <body>
 <h1>Paycheck Difference</h1>
-<p class="note">Upload the paycheck PDF. Pick the page, then the two rotation weeks in date order. Old counts up to the scheduled hours, so a 72-hour week counts the overtime that is still inside 72. New caps at 40, at 32 on week 6, and at 0 on the off week. Clear resets the form.</p>
+<p class="note">Upload the paycheck PDF. Pick the page, then the two rotation weeks in date order. The side shows how the OT 1.5 rate is built. Old counts up to the scheduled hours. New caps at 40, at 32 on week 6, and at 0 on the off week. Clear resets the form.</p>
 <div id="drop">
   <div>Choose the paycheck PDF.</div>
   <input id="file" type="file" accept="application/pdf,.pdf" />
@@ -107,14 +107,16 @@ function draw(){
   const eeRate = (Number(document.getElementById("defer").value) || 0) / 100;
   const pep = (Number(document.getElementById("pension").value) || 0) / 100;
   const base = parsed.rate || 0;
-  let oldHours = 0, newHours = 0, side = "";
+  let oldHours = 0, newHours = 0, side = `<p>Off-shift is always time-and-a-half, ${rate2(base)} x 1.5 = ${rate2(base * 1.5)}.</p><p>OT 1.5 is not 1.5 times the base. It is the base plus half of that week's regular rate. The regular rate rises when the week has off-shift hours.</p>`;
   parsed.weeks.forEach((w, i) => {
     const cap = picks[i];
     const oldWeek = Math.min(w.hours, cap.old), newWeek = Math.min(w.hours, cap.neu);
     oldHours += oldWeek; newHours += newWeek;
-    const off = w.off || 0, ot = w.ot || 0, total = (w.reg || 0) + off + ot, ratio = total ? off / total : 0;
-    const otRate = base + 0.5 * base * (1 + 0.5 * ratio);
-    side += `<p><b>${w.name}, ${cap.name}</b><br>Hours on the check ${num(w.hours)}. Old counts ${num(oldWeek)} of ${cap.old}. New counts ${num(newWeek)} of ${cap.neu}.<br>Regular ${num(w.reg || 0)}. Off-shift ${num(off)} x ${rate2(base * 1.5)}. OT 1.5 ${num(ot)} x ${rate2(otRate)}.</p>`;
+    const off = w.off || 0, ot = w.ot || 0, reg = w.reg || 0, total = reg + off + ot;
+    const ratio = total ? off / total : 0;
+    const regularRate = base * (1 + 0.5 * ratio);
+    const otRate = base + 0.5 * regularRate;
+    side += `<p><b>${w.name}, ${cap.name}</b><br>Hours on the check ${num(w.hours)}. Old counts ${num(oldWeek)} of ${cap.old}. New counts ${num(newWeek)} of ${cap.neu}.<br>Off-shift ratio = ${num(off)} / ${num(total)} = ${num(ratio)}<br>Regular rate = ${rate2(base)} x (1 + 0.5 x ${num(ratio)}) = ${rate2(regularRate)}<br>OT 1.5 rate = ${rate2(base)} + half of ${rate2(regularRate)} = ${rate2(otRate)}<br>OT 1.5 pay = ${num(ot)} x ${rate2(otRate)} = ${money(ot * otRate)}</p>`;
   });
   const oldPay = oldHours * base, newPay = newHours * base;
   const eeOld = oldPay * eeRate, eeNew = newPay * eeRate;
@@ -124,7 +126,7 @@ function draw(){
   const line = (name, old, neu, moneyish=true) => `<tr><td>${name}</td><td>${moneyish ? money(old) : num(old)}</td><td>${moneyish ? money(neu) : num(neu)}</td><td class="diff">${moneyish ? money(old - neu) : num(old - neu)}</td></tr>`;
   document.getElementById("out").innerHTML = `<h2>Page ${page.page}: ${page.begin} to ${page.end}</h2><div class="wrap"><table><tr><th></th><th>Old, scheduled cap</th><th>New, 40 / 32 / 0</th><th class="diff">Difference</th></tr>
     ${line("Paycheck", parsed.pay, parsed.pay)} ${line("Hours counted for retirement", oldHours, newHours, false)} ${line("PTO counted", parsed.pto, parsed.pto, false)} ${line("Holiday counted", parsed.holiday, parsed.holiday, false)} ${line("Pay base, straight time", oldPay, newPay)} ${line("Your 401(k)", eeOld, eeNew)} ${line("Employer 401(k)", erOld, erNew)} ${line("Pension credit", oldPay * pep, newPay * pep)} ${line("Taxes saved", taxOld, taxNew)}
-  </table><div class="side"><h2>Date order</h2>${side}<p>Old counts overtime that is still inside the scheduled hours. A 72-hour week counts up to 72. New stops at 40.</p></div></div>
+  </table><div class="side"><h2>How OT 1.5 is calculated</h2>${side}</div></div>
   <div class="totals"><h2>Total difference</h2><ul><li>Your 401(k): ${money(eeOld - eeNew)}</li><li>Employer 401(k): ${money(erOld - erNew)}</li><li>Pension: ${money((oldPay - newPay) * pep)}</li><li>Taxes saved: ${money(taxOld - taxNew)}</li></ul><p>Combined: ${money((eeOld - eeNew) + (erOld - erNew) + (oldPay - newPay) * pep + (taxOld - taxNew))}.</p></div>`;
 }
 </script>
