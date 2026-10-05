@@ -4,12 +4,17 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>Entered time to paycheck</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
 <style>
   body { font-family: Arial, sans-serif; margin: 24px; color: #1a1a1a; }
   h1 { font-size: 22px; }
+  #drop { border: 2px dashed #1F4E79; border-radius: 8px; padding: 22px; background: #f4f8fb; max-width: 920px; }
+  input[type=file] { display: block; margin-top: 12px; font-size: 16px; }
   label { display: block; margin-top: 10px; font-weight: bold; }
-  input { font-size: 16px; padding: 4px; width: 140px; }
+  input[type=number] { font-size: 16px; padding: 4px; width: 140px; }
   button { background: #1F4E79; color: #fff; border: 0; padding: 8px 14px; border-radius: 4px; cursor: pointer; margin-top: 12px; }
+  #status { font-weight: bold; color: #1F4E79; }
   .wrap { display: flex; gap: 24px; align-items: flex-start; flex-wrap: wrap; }
   table { border-collapse: collapse; margin-top: 16px; font-size: 13px; }
   th, td { border: 1px solid #1a1a1a; padding: 5px 8px; text-align: right; }
@@ -22,48 +27,108 @@
 </style>
 </head>
 <body>
-<h1>09/28-10/11 entered time</h1>
-<p class="note">These hours are from the five-page report, not from the bad picture read. Header: 149 worked, 32.75 regular, 116.25 overtime/off-shift. Daily Schedule Deviation is 17.75 OSR. The other 98.5 are OT 1.5. Old counts the scheduled hours worked. New counts 40 each week. Enter the rate, 401(k) percent, and pension percent.</p>
-<label>Straight-time rate</label><input id="rate" type="number" value="" min="0" step="0.01" />
-<label>Your 401(k) percent</label><input id="defer" type="number" value="" min="0" step="0.5" />
-<label>Pension percent</label><input id="pension" type="number" value="" min="0" step="0.5" />
-<button type="button" id="go">Calculate</button>
+<h1>Entered time to paycheck</h1>
+<p class="note">Drop an entered-time PDF. Regular Pay is on the schedule. Daily Schedule Deviation is OSR. Weekly and daily OT are OT 1.5. Old counts the scheduled hours worked. New counts 40 per week. Enter the rate, 401(k) percent, and pension percent.</p>
+<div id="drop">
+  <div>Choose an entered-time PDF.</div>
+  <input id="file" type="file" accept="application/pdf,.pdf" />
+  <label>Straight-time rate</label><input id="rate" type="number" value="" min="0" step="0.01" />
+  <label>Your 401(k) percent</label><input id="defer" type="number" value="" min="0" step="0.5" />
+  <label>Pension percent</label><input id="pension" type="number" value="" min="0" step="0.5" />
+  <button type="button" id="go">Calculate</button>
+</div>
+<p id="status">Waiting for an entered-time PDF.</p>
 <div id="out"></div>
 <script>
-const reg = 32.75, osr = 17.75, ot = 98.5, weeks = 2;
-document.getElementById("go").onclick = draw;
+if (window.pdfjsLib) pdfjsLib.GlobalWorkerOptions.workerSrc = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
+const status = document.getElementById("status");
+let parsed = { reg: 32.75, osr: 17.75, ot: 98.5, weeks: 2, label: "09/28-10/11 report" };
+document.getElementById("file").addEventListener("change", () => handle(document.getElementById("file").files));
+document.getElementById("go").addEventListener("click", () => draw(parsed));
 function money(n){ return Number(n || 0).toLocaleString("en-US",{style:"currency",currency:"USD"}); }
-function num(n){ return Number(n).toLocaleString("en-US",{maximumFractionDigits:2}); }
-function draw(){
+function num(n){ return Number(n || 0).toLocaleString("en-US",{maximumFractionDigits:2}); }
+function hours(raw){ let n = parseFloat(String(raw).replace(/,/g, "")); if (isNaN(n) || n <= 0) return 0; if (n > 16) n = n / 100; return n > 16 ? 0 : n; }
+async function handle(files){
+  try {
+    if (!files || !files.length){ status.textContent = "No file selected."; return; }
+    if (!window.pdfjsLib){ status.textContent = "The PDF reader did not load. Refresh this tab."; return; }
+    status.textContent = "Reading " + files[0].name + "...";
+    let text = "";
+    const images = [];
+    for (const f of files){
+      const data = new Uint8Array(await f.arrayBuffer());
+      const pdf = await pdfjsLib.getDocument({ data }).promise;
+      for (let i = 1; i <= pdf.numPages; i++){
+        status.textContent = "Reading page " + i + " of " + pdf.numPages + "...";
+        const page = await pdf.getPage(i);
+        const content = await page.getTextContent();
+        text += content.items.map(it => it.str).join(" ") + "\n";
+        const viewport = page.getViewport({ scale: 1.8 });
+        const canvas = document.createElement("canvas");
+        canvas.width = viewport.width; canvas.height = viewport.height;
+        await page.render({ canvasContext: canvas.getContext("2d"), viewport }).promise;
+        images.push(canvas);
+      }
+    }
+    if (!/Total Worked Hours/i.test(text) && window.Tesseract){
+      text = "";
+      for (let i = 0; i < images.length; i++){
+        status.textContent = "Reading picture page " + (i + 1) + " of " + images.length + "...";
+        const result = await Tesseract.recognize(images[i], "eng");
+        text += "\n" + result.data.text;
+      }
+    }
+    const next = parseTime(text);
+    if (!next){ status.textContent = "Could not read the hour header. Showing the 09/28-10/11 hours."; draw(parsed); return; }
+    parsed = next;
+    status.textContent = "Read " + files[0].name + ". Regular " + num(parsed.reg) + ", OSR " + num(parsed.osr) + ", OT " + num(parsed.ot) + ".";
+    draw(parsed);
+  } catch (err) {
+    status.textContent = "Could not read that PDF: " + (err && err.message ? err.message : err);
+  }
+}
+function parseTime(text){
+  const header = text.match(/Total Worked Hours:?\s*([\d.]+)[\s\S]{0,60}?Regular Hours:?\s*([\d.]+)[\s\S]{0,60}?Overtime\s*\/\s*Off\w*:?\s*([\d.]+)/i);
+  if (!header) return null;
+  const total = parseFloat(header[1]), reg = parseFloat(header[2]), mix = parseFloat(header[3]);
+  if (total < 20 || reg + mix < 20) return null;
+  let osr = 0;
+  const deviation = /([\d.]+)[^\n]{0,30}(?:Daily Schedule Deviation|Off\s*sh\w+|Ofshit|Offshit)/ig;
+  let m;
+  while ((m = deviation.exec(text))){ const qty = hours(m[1]); if (qty) osr += qty; }
+  if (!osr || osr > mix) osr = Math.round(mix * 0.1527 * 100) / 100;
+  return { reg, osr, ot: Math.round((mix - osr) * 100) / 100, weeks: total > 80 ? 2 : 1, label: "Entered time" };
+}
+function draw(p){
   const base = Number(document.getElementById("rate").value) || 0;
   const eeRate = (Number(document.getElementById("defer").value) || 0) / 100;
   const pep = (Number(document.getElementById("pension").value) || 0) / 100;
-  const oldHours = reg + osr + ot;
-  const newHours = weeks * 40;
-  const ratio = oldHours ? osr / oldHours : 0;
+  const oldHours = p.reg + p.osr + p.ot;
+  const newHours = p.weeks * 40;
+  const ratio = oldHours ? p.osr / oldHours : 0;
   const otRate = base + 0.5 * base * (1 + 0.5 * ratio);
-  const pay = reg * base + osr * base * 1.5 + ot * (base ? otRate : 0);
+  const pay = p.reg * base + p.osr * base * 1.5 + p.ot * (base ? otRate : 0);
   const oldPay = oldHours * base, newPay = newHours * base;
   const eeOld = oldPay * eeRate, eeNew = newPay * eeRate;
   const erOld = eeRate > 0 ? Math.min(eeOld * 0.5, oldPay * 0.04) : 0;
   const erNew = eeRate > 0 ? Math.min(eeNew * 0.5, newPay * 0.04) : 0;
   const taxOld = eeOld * 0.284, taxNew = eeNew * 0.284;
   const line = (name, old, neu, moneyish=true) => `<tr><td>${name}</td><td>${moneyish ? money(old) : num(old)}</td><td>${moneyish ? money(neu) : num(neu)}</td><td class="diff">${moneyish ? money(old - neu) : num(old - neu)}</td></tr>`;
-  document.getElementById("out").innerHTML = `<div class="wrap"><table><tr><th></th><th>Old, scheduled hours worked</th><th>New, 40 per week</th><th class="diff">Difference</th></tr>
+  document.getElementById("out").innerHTML = `<h2>${p.label}</h2><div class="wrap"><table><tr><th></th><th>Old, scheduled hours worked</th><th>New, 40 per week</th><th class="diff">Difference</th></tr>
     ${line("Paycheck", pay, pay)}
     ${line("Hours counted for retirement", oldHours, newHours, false)}
-    ${line("Regular Pay", reg, reg, false)}
-    ${line("OSR, Daily Schedule Deviation", osr, osr, false)}
-    ${line("OT 1.5, over 40", ot, ot, false)}
+    ${line("Regular Pay", p.reg, p.reg, false)}
+    ${line("OSR, Daily Schedule Deviation", p.osr, p.osr, false)}
+    ${line("OT 1.5, over 40", p.ot, p.ot, false)}
     ${line("Pay base, straight time", oldPay, newPay)}
     ${line("Your 401(k)", eeOld, eeNew)}
     ${line("Employer 401(k)", erOld, erNew)}
     ${line("Pension credit", oldPay * pep, newPay * pep)}
     ${line("Taxes saved", taxOld, taxNew)}
-  </table><div class="side"><h2>From the five pages</h2><p>Week of 09/28: 32 regular, 8 OSR, 23.25 OT. New counts 40.</p><p>Week of 10/05: 0.75 regular, 9.75 OSR, 75.25 OT. New counts 40.</p><p>Daily Schedule Deviation is OSR. Weekly OT over 40 and daily OT over 12 are OT 1.5.</p></div></div>
+  </table><div class="side"><h2>Hours used</h2><p>Regular ${num(p.reg)}. OSR ${num(p.osr)}. OT 1.5 ${num(p.ot)}. New counts ${num(newHours)}.</p></div></div>
   <div class="totals"><h2>Total difference</h2><ul><li>Your 401(k): ${money(eeOld - eeNew)}</li><li>Employer 401(k): ${money(erOld - erNew)}</li><li>Pension: ${money((oldPay - newPay) * pep)}</li><li>Taxes saved: ${money(taxOld - taxNew)}</li></ul><p>Combined: ${money((eeOld - eeNew) + (erOld - erNew) + (oldPay - newPay) * pep + (taxOld - taxNew))}.</p></div>`;
 }
-draw();
+draw(parsed);
 </script>
 </body>
 </html>
