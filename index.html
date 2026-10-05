@@ -13,6 +13,7 @@
   input[type=file] { display: block; margin-top: 12px; font-size: 16px; }
   label { display: block; margin-top: 10px; font-weight: bold; }
   input[type=number] { font-size: 16px; padding: 4px; width: 120px; }
+  button { background: #1F4E79; color: #fff; border: 0; padding: 8px 14px; border-radius: 4px; cursor: pointer; margin-top: 12px; }
   #status { font-weight: bold; color: #1F4E79; }
   .wrap { display: flex; gap: 24px; align-items: flex-start; flex-wrap: wrap; }
   table { border-collapse: collapse; margin-top: 16px; font-size: 13px; }
@@ -28,27 +29,35 @@
 </head>
 <body>
 <h1>Old pay vs new pay</h1>
-<p class="note">Drop a paycheck PDF or an entered-time PDF. Both use the same calculation. The file stays on this computer. PTO counts in both methods. Holiday is paid at the regular rate and counts in neither. Off-shift counts at straight time. Overtime counts only on the old side. If the file has no 401(k) amount, the percent below is used. Zero means the employer puts in zero.</p>
+<p class="note">Drop a paycheck or an entered-time PDF. Both use the same calculation. Enter your own rate, 401(k) percent, and pension percent. Leave 401(k) at blank or 0 if you are not contributing. The file stays on this computer.</p>
 <div id="drop">
   <div>Choose a paycheck or entered-time PDF.</div>
   <input id="file" type="file" accept="application/pdf,.pdf" />
-  <label>Straight-time rate, used when the PDF has no rate</label>
-  <input id="rate" type="number" value="87.54" min="0" step="0.01" />
-  <label>Your 401(k) percent, used when the PDF has no 401(k) amount</label>
-  <input id="defer" type="number" value="15" min="0" step="0.5" />
+  <label>Straight-time rate</label><input id="rate" type="number" value="" min="0" step="0.01" />
+  <label>Your 401(k) percent</label><input id="defer" type="number" value="" min="0" step="0.5" />
+  <label>Pension percent</label><input id="pension" type="number" value="" min="0" step="0.5" />
+  <button type="button" id="go">Calculate</button>
 </div>
 <p id="status">Waiting for a PDF.</p>
 <div id="out"></div>
 <script>
 if (window.pdfjsLib) pdfjsLib.GlobalWorkerOptions.workerSrc = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
-const PEP = 0.10, CO = 0.044;
+const CO = 0.044;
 const BRACKETS = { single:[[0.10,12400],[0.12,50400],[0.22,105700],[0.24,201775],[0.32,256225],[0.35,640600],[0.37,Infinity]], joint:[[0.10,24800],[0.12,100800],[0.22,211400],[0.24,403550],[0.32,512450],[0.35,768700],[0.37,Infinity]] };
 const status = document.getElementById("status");
+let parsed = null;
 document.getElementById("file").addEventListener("change", () => handle(document.getElementById("file").files));
+document.getElementById("go").addEventListener("click", () => parsed ? draw(parsed) : status.textContent = "Choose a PDF first.");
 function money(n){ return Number(n || 0).toLocaleString("en-US",{style:"currency",currency:"USD"}); }
 function num(n){ return Number(n || 0).toLocaleString("en-US",{maximumFractionDigits:2}); }
 function rate4(n){ return Number(n || 0).toLocaleString("en-US",{style:"currency",currency:"USD",minimumFractionDigits:4,maximumFractionDigits:4}); }
 function bracket(name, taxable){ for (const [rate, top] of (BRACKETS[name] || BRACKETS.single)) if (taxable <= top) return rate; return 0.37; }
+function hours(raw){
+  let n = parseFloat(String(raw).replace(/,/g, ""));
+  if (isNaN(n)) return 0;
+  if (n > 24) n = n / 100;
+  return n > 24 ? 0 : n;
+}
 async function handle(files){
   try {
     if (!files || !files.length){ status.textContent = "No file selected."; return; }
@@ -64,7 +73,7 @@ async function handle(files){
         const page = await pdf.getPage(i);
         const content = await page.getTextContent();
         text += content.items.map(it => it.str).join(" ") + "\n";
-        const viewport = page.getViewport({ scale: 1.6 });
+        const viewport = page.getViewport({ scale: 1.8 });
         const canvas = document.createElement("canvas");
         canvas.width = viewport.width; canvas.height = viewport.height;
         await page.render({ canvasContext: canvas.getContext("2d"), viewport }).promise;
@@ -72,22 +81,21 @@ async function handle(files){
       }
     }
     if (text.replace(/\s/g, "").length < 40 && window.Tesseract){
-      status.textContent = "The PDF is a picture. Reading the hours from the page...";
+      status.textContent = "Reading the hours off the page...";
       for (let i = 0; i < images.length; i++){
         status.textContent = "Reading picture page " + (i + 1) + " of " + images.length + "...";
         const result = await Tesseract.recognize(images[i], "eng");
         text += "\n" + result.data.text;
       }
     }
-    const parsed = parseAny(text);
-    if (!parsed){ status.textContent = "Opened the PDF, but found no hours."; return; }
-    status.textContent = "Calculated " + parsed.label + ".";
+    parsed = parseAny(text);
+    if (!parsed){ status.textContent = "Opened the PDF, but found no hour totals."; return; }
+    status.textContent = parsed.label + ". Regular " + num(parsed.reg) + ", off-shift " + num(parsed.off) + ", OT " + num(parsed.ot) + ". Enter your rate and percents, then Calculate.";
     draw(parsed);
   } catch (err) {
     status.textContent = "Could not calculate that PDF: " + (err && err.message ? err.message : err);
   }
 }
-function numOf(text){ const n = parseFloat(String(text).replace(/,/g, "")); return isNaN(n) ? 0 : n; }
 function parseAny(text){
   if (/RegPay|OffShft1\.5|OT 1\.5/.test(text)) return parsePaycheck(text);
   return parseTimeEntry(text);
@@ -102,51 +110,55 @@ function parsePaycheck(text){
     let reg = 0, off = 0, ot = 0, pto = 0, hol = 0, rate = 0;
     let m; const local = new RegExp(earn.source, "g");
     while ((m = local.exec(chunk))){
-      const hours = parseFloat(m[3]);
-      if (m[1] === "RegPay"){ reg += hours; rate = parseFloat(m[4]); }
-      else if (m[1] === "OffShft1.5") off += hours;
-      else if (m[1] === "OT 1.5" || m[1] === "RegPay1.5") ot += hours;
-      else if (m[1] === "PTO") pto += hours;
-      else if (m[1] === "Holiday") hol += hours;
+      const qty = parseFloat(m[3]);
+      if (m[1] === "RegPay"){ reg += qty; rate = parseFloat(m[4]); }
+      else if (m[1] === "OffShft1.5") off += qty;
+      else if (m[1] === "OT 1.5" || m[1] === "RegPay1.5") ot += qty;
+      else if (m[1] === "PTO") pto += qty;
+      else if (m[1] === "Holiday") hol += qty;
     }
-    if (!(reg + off + ot + pto + hol)) continue;
+    if (!(reg + off + ot + pto + hol) || reg + off + ot + pto + hol > 200) continue;
     const ee = chunk.match(/401\(k\)\s+([\d,]+\.\d{2})\s+([\d,]+\.\d{2})/);
-    const tax = chunk.match(/Federal Withholding - Taxable Wages\s+([\d,]+\.\d{2})\s+([\d,]+\.\d{2})/);
-    rows.push({ label: "Check ending " + h[2], reg, off, ot, pto, hol, rate, ee: ee ? numOf(ee[1]) : 0, taxable: tax ? numOf(tax[2]) : 0, statusName: /Married/i.test(chunk) ? "joint" : "single" });
+    rows.push({ label: "Check ending " + h[2], reg, off, ot, pto, hol, rate, ee: ee ? parseFloat(ee[1].replace(/,/g,"")) : 0 });
   }
   return rows.length ? rows[rows.length - 1] : null;
 }
 function parseTimeEntry(text){
-  const regular = text.match(/Regular Hours:?\s*([\d.]+)/i);
-  const ptoHol = text.match(/PTO\s*\/\s*Holiday:?\s*([\d.]+)/i);
+  const grab = (re) => { const m = text.match(re); return m ? parseFloat(m[1]) : 0; };
+  const reg = grab(/Regular Hours:?\s*([\d.]+)/i);
+  const mix = grab(/Overtime\s*\/\s*Off\s*sh\w*:?\s*([\d.]+)/i);
+  const pto = grab(/PTO\s*\/\s*Holiday:?\s*([\d.]+)/i);
+  const total = grab(/Total Worked Hours:?\s*([\d.]+)/i);
   let off = 0, ot = 0;
-  const line = /([\d.]+)\s+(Off\s*sh(?:i|l)ft\s*1\.5|FLSA\s*OT|Overtime\s*1\.5)/ig;
+  const line = /([\d.]+)\s+(off\s*sh\w+|onfehit|offshin|FLSA\s*OT|FLSAOT)/ig;
   let m;
   while ((m = line.exec(text))){
-    const hours = parseFloat(m[1]);
-    if (/off/i.test(m[2])) off += hours;
-    else ot += hours;
+    const qty = hours(m[1]);
+    if (!qty) continue;
+    if (/off|onfe/i.test(m[2])) off += qty;
+    else ot += qty;
   }
-  const reg = regular ? parseFloat(regular[1]) : 0;
-  const pto = ptoHol ? parseFloat(ptoHol[1]) : 0;
+  if (mix && Math.abs(off + ot - mix) > 1){ off = 0; ot = mix; }
+  if (!reg && total) return { label: "Entered time", reg: Math.max(0, total - mix - pto), off, ot, pto, hol: 0, rate: 0, ee: 0 };
   if (!(reg + off + ot + pto)) return null;
-  return { label: "Entered time", reg, off, ot, pto, hol: 0, rate: 0, ee: 0, taxable: 0, statusName: "single" };
+  return { label: "Entered time", reg, off, ot, pto, hol: 0, rate: 0, ee: 0 };
 }
 function draw(p){
-  const base = p.rate || Number(document.getElementById("rate").value) || 0;
-  const typed = (Number(document.getElementById("defer").value) || 0) / 100;
+  const base = Number(document.getElementById("rate").value);
+  const eeRate = (Number(document.getElementById("defer").value) || 0) / 100;
+  const pep = (Number(document.getElementById("pension").value) || 0) / 100;
+  if (!base){ status.textContent = p.label + ". Regular " + num(p.reg) + ", off-shift " + num(p.off) + ", OT " + num(p.ot) + ", PTO " + num(p.pto) + ". Enter your rate, then Calculate."; }
   const total = p.reg + p.off + p.ot + p.pto + p.hol;
   const ratio = total ? p.off / total : 0;
-  const rr = total ? base * (1 + 0.5 * ratio) : 0;
-  const otRate = base + 0.5 * rr;
-  const pay = p.reg * base + p.off * base * 1.5 + p.ot * otRate + (p.pto + p.hol) * base;
+  const rr = base ? base * (1 + 0.5 * ratio) : 0;
+  const otRate = base ? base + 0.5 * rr : 0;
+  const pay = base ? p.reg * base + p.off * base * 1.5 + p.ot * otRate + (p.pto + p.hol) * base : 0;
   const oldHours = p.reg + p.off + p.ot + p.pto, newHours = p.reg + p.off + p.pto;
-  const oldPay = oldHours * base, newPay = newHours * base;
-  const eeRate = p.ee > 0 && newPay > 0 ? p.ee / newPay : typed;
-  const eeOld = oldPay * eeRate, eeNew = p.ee > 0 ? p.ee : newPay * eeRate;
+  const oldPay = oldHours * (base || 0), newPay = newHours * (base || 0);
+  const eeOld = oldPay * eeRate, eeNew = newPay * eeRate;
   const erOld = eeRate > 0 ? Math.min(eeOld * 0.5, oldPay * 0.04) : 0;
   const erNew = eeRate > 0 ? Math.min(eeNew * 0.5, newPay * 0.04) : 0;
-  const fed = p.taxable ? bracket(p.statusName, p.taxable) : 0.24;
+  const fed = 0.24;
   const taxOld = eeOld * (fed + CO), taxNew = eeNew * (fed + CO);
   const line = (name, old, neu, moneyish=true) => `<tr><td>${name}</td><td>${moneyish ? money(old) : num(old)}</td><td>${moneyish ? money(neu) : num(neu)}</td><td class="diff">${moneyish ? money(old - neu) : num(old - neu)}</td></tr>`;
   document.getElementById("out").innerHTML = `<h2>${p.label}</h2><div class="wrap"><table><tr><th></th><th>Old method</th><th>New method</th><th class="diff">Difference</th></tr>
@@ -160,15 +172,15 @@ function draw(p){
     ${line("Pay base for pension and 401(k)", oldPay, newPay)}
     ${line("Your 401(k)", eeOld, eeNew)}
     ${line("Employer 401(k)", erOld, erNew)}
-    ${line("Pension credit, 10%", oldPay * PEP, newPay * PEP)}
+    ${line("Pension credit", oldPay * pep, newPay * pep)}
     ${line("Taxes saved", taxOld, taxNew)}
-  </table><div class="side"><h2>How OT 1.5 is calculated</h2><p>Off-shift ratio = ${num(p.off)} / ${num(total)} = ${num(ratio * 100)}%</p><p>Regular rate = ${money(base)} x (1 + 0.5 x ${num(ratio * 100)}%) = ${rate4(rr)}</p><p>OT 1.5 rate = ${money(base)} + half of ${rate4(rr)} = ${rate4(otRate)}</p><p>Off-shift pay rate stays ${money(base * 1.5)}.</p></div></div>
+  </table><div class="side"><h2>How OT 1.5 is calculated</h2><p>Off-shift ratio = ${num(p.off)} / ${num(total)} = ${num(ratio * 100)}%</p><p>Regular rate = ${base ? money(base) : "your rate"} x (1 + 0.5 x ${num(ratio * 100)}%) = ${base ? rate4(rr) : "enter a rate"}</p><p>OT 1.5 rate = rate + half of the regular rate = ${base ? rate4(otRate) : "enter a rate"}</p></div></div>
   <div class="totals"><h2>Total difference</h2><ul>
     <li>Your 401(k): ${money(eeOld - eeNew)}</li>
     <li>Employer 401(k): ${money(erOld - erNew)}</li>
-    <li>Pension: ${money((oldPay - newPay) * PEP)}</li>
+    <li>Pension: ${money((oldPay - newPay) * pep)}</li>
     <li>Taxes saved: ${money(taxOld - taxNew)}</li>
-  </ul><p>Combined: ${money((eeOld - eeNew) + (erOld - erNew) + (oldPay - newPay) * PEP + (taxOld - taxNew))}.</p></div>`;
+  </ul><p>Combined: ${money((eeOld - eeNew) + (erOld - erNew) + (oldPay - newPay) * pep + (taxOld - taxNew))}.</p></div>`;
 }
 </script>
 </body>
