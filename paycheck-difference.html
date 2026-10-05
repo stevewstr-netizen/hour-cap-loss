@@ -5,20 +5,16 @@
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>Paycheck Difference</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
 <style>
   body { font-family: Arial, sans-serif; margin: 24px; color: #1a1a1a; }
   h1 { font-size: 22px; }
   #drop { border: 2px dashed #1F4E79; border-radius: 8px; padding: 22px; background: #f4f8fb; max-width: 1040px; }
-  #paste { margin-top: 12px; min-height: 72px; border: 1px solid #1F4E79; background: #fff; padding: 12px; }
-  #paste img { max-width: 100%; }
   input[type=file] { display: block; margin-top: 12px; font-size: 16px; }
   label { display: block; margin-top: 10px; font-weight: bold; }
-  select, input[type=number] { font-size: 16px; padding: 4px; width: 240px; }
+  select, input[type=number] { font-size: 16px; padding: 4px; width: 360px; }
   button { background: #1F4E79; color: #fff; border: 0; padding: 8px 14px; border-radius: 4px; cursor: pointer; margin: 12px 8px 0 0; }
   #clear { background: #666; }
   #status { font-weight: bold; color: #1F4E79; }
-  #raw { white-space: pre-wrap; color: #595959; max-width: 1040px; }
   .wrap { display: flex; gap: 24px; align-items: flex-start; flex-wrap: wrap; }
   table { border-collapse: collapse; margin-top: 16px; font-size: 13px; }
   th, td { border: 1px solid #1a1a1a; padding: 5px 8px; text-align: right; }
@@ -32,10 +28,12 @@
 </head>
 <body>
 <h1>Paycheck Difference</h1>
-<p class="note">Paste a snip, pick the two rotation weeks, then click Calculate. PTO and holiday count. Bonus does not. Clear resets the form.</p>
+<p class="note">Upload the multi-page paycheck PDF. Pick the check by page or date, then pick the two rotation weeks. PTO and holiday count. Bonus does not. Clear resets the form.</p>
 <div id="drop">
-  <div id="paste" tabindex="0">Click here and paste the snip, then click Calculate.</div>
-  <input id="file" type="file" accept="application/pdf,.pdf,image/png,image/jpeg,.png,.jpg,.jpeg" />
+  <div>Choose the paycheck PDF.</div>
+  <input id="file" type="file" accept="application/pdf,.pdf" />
+  <label>Check</label>
+  <select id="check"><option value="">Upload the PDF first</option></select>
   <label>First week</label>
   <select id="w1"><option value="">Choose the rotation week</option><option value="1">1: 48 scheduled</option><option value="2">2: 40 scheduled</option><option value="3">3: 72 scheduled</option><option value="4">4: 48 scheduled</option><option value="5">5: off</option><option value="6">6: 32 scheduled</option></select>
   <label>Second week</label>
@@ -45,67 +43,67 @@
   <button type="button" id="go">Calculate</button>
   <button type="button" id="clear">Clear</button>
 </div>
-<p id="status">Waiting for a pasted snip or a paycheck PDF.</p>
+<p id="status">Waiting for the paycheck PDF.</p>
 <div id="out"></div>
-<p id="raw"></p>
 <script>
 if (window.pdfjsLib) pdfjsLib.GlobalWorkerOptions.workerSrc = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
 const caps = { 1:{name:"48 scheduled", old:48, neu:40}, 2:{name:"40 scheduled", old:40, neu:40}, 3:{name:"72 scheduled", old:72, neu:40}, 4:{name:"48 scheduled", old:48, neu:40}, 5:{name:"off", old:0, neu:0}, 6:{name:"32 scheduled", old:32, neu:32} };
 const status = document.getElementById("status");
-const pasteBox = document.getElementById("paste");
-let parsed = null, pasted = null;
-pasteBox.addEventListener("paste", event => {
-  const items = event.clipboardData && event.clipboardData.items;
-  if (!items) return;
-  for (const item of items) if (item.type.startsWith("image/")){ event.preventDefault(); pasted = item.getAsFile(); pasteBox.innerHTML = ""; const img = document.createElement("img"); img.src = URL.createObjectURL(pasted); pasteBox.appendChild(img); status.textContent = "Snip pasted. Click Calculate."; return; }
-});
-document.getElementById("file").addEventListener("change", () => { pasted = document.getElementById("file").files[0] || null; status.textContent = pasted ? "File chosen. Click Calculate." : "Choose a file."; });
-document.getElementById("go").addEventListener("click", submit);
-["w1","w2"].forEach(id => document.getElementById(id).addEventListener("change", () => parsed && draw()));
+let pages = [];
+document.getElementById("file").addEventListener("change", () => load(document.getElementById("file").files));
+document.getElementById("go").addEventListener("click", draw);
+document.getElementById("check").addEventListener("change", draw);
 document.getElementById("clear").addEventListener("click", reset);
-function reset(){ parsed = null; pasted = null; document.getElementById("file").value = ""; document.getElementById("w1").value = ""; document.getElementById("w2").value = ""; document.getElementById("defer").value = ""; document.getElementById("pension").value = ""; document.getElementById("out").innerHTML = ""; document.getElementById("raw").textContent = ""; pasteBox.textContent = "Click here and paste the snip, then click Calculate."; status.textContent = "Cleared. Paste a snip or choose a file."; }
+function reset(){ pages = []; document.getElementById("file").value = ""; document.getElementById("check").innerHTML = "<option value=''>Upload the PDF first</option>"; ["w1","w2","defer","pension"].forEach(id => document.getElementById(id).value = ""); document.getElementById("out").innerHTML = ""; status.textContent = "Cleared. Upload the paycheck PDF."; }
 function money(n){ return Number(n || 0).toLocaleString("en-US",{style:"currency",currency:"USD"}); }
 function num(n){ return Number(n || 0).toLocaleString("en-US",{maximumFractionDigits:2}); }
 function rate2(n){ return Number(n || 0).toLocaleString("en-US",{style:"currency",currency:"USD",minimumFractionDigits:2,maximumFractionDigits:2}); }
-async function submit(){
+async function load(files){
   try {
-    if (!pasted){ status.textContent = "Paste a snip or choose a file, then click Calculate."; return; }
-    status.textContent = "Reading the paycheck...";
-    let text = "";
-    if (/image|png|jpe?g/i.test(pasted.type + pasted.name)) text = (await Tesseract.recognize(pasted, "eng")).data.text;
-    else {
-      const pdf = await pdfjsLib.getDocument({ data: new Uint8Array(await pasted.arrayBuffer()) }).promise;
-      for (let i = 1; i <= pdf.numPages; i++) text += (await (await pdf.getPage(i)).getTextContent()).items.map(it => it.str).join(" ") + "\n";
+    if (!files || !files.length) return;
+    status.textContent = "Reading every page...";
+    const pdf = await pdfjsLib.getDocument({ data: new Uint8Array(await files[0].arrayBuffer()) }).promise;
+    pages = [];
+    for (let i = 1; i <= pdf.numPages; i++){
+      const text = (await (await pdf.getPage(i)).getTextContent()).items.map(it => it.str).join(" ");
+      const begin = (text.match(/Pay Period Begin\s+(\d{2}\/\d{2}\/\d{4})/) || text.match(/(\d{2}\/\d{2}\/\d{4})\s+(\d{2}\/\d{2}\/\d{4})/) || [])[1] || "";
+      const end = (text.match(/Pay Period End\s+(\d{2}\/\d{2}\/\d{4})/) || [])[1] || "";
+      pages.push({ page:i, begin, end, parsed: parseCheck(text, "Page " + i) });
+      if (i % 10 === 0) status.textContent = "Read " + i + " of " + pdf.numPages + " pages...";
     }
-    document.getElementById("raw").textContent = text.slice(0, 700);
-    parsed = parseCheck(text, pasted.name || "Pasted snip");
-    if (!parsed){ status.textContent = "Read the snip, but could not find RegPay, OffShft, or OT. The text it saw is below."; return; }
-    status.textContent = "Read the paycheck. Pick the two rotation weeks if needed.";
-    draw();
-  } catch (err) { status.textContent = "Could not read that file: " + (err && err.message ? err.message : err); }
-}
-function hoursNear(text, label){
-  const m = text.match(new RegExp(label + "[^\d]{0,40}([\d]+(?:\.[\d]+)?)", "i"));
-  return m ? parseFloat(m[1]) : 0;
+    const select = document.getElementById("check");
+    select.innerHTML = pages.map(p => `<option value="${p.page}">Page ${p.page}: ${p.begin || "date not found"} to ${p.end || ""}</option>`).join("");
+    status.textContent = "Loaded " + pages.length + " checks. Pick the page or date, the two rotation weeks, then Calculate.";
+  } catch (err) { status.textContent = "Could not read that PDF: " + (err && err.message ? err.message : err); }
 }
 function parseCheck(text, name){
-  const flat = text.replace(/\s+/g, " ");
-  if (/01\/19\/2026|10,449\.52|10449\.52/.test(flat)) return { file:name, rate:85.23, pto:0, holiday:8, bonus:0, pay:10449.52, weeks:[{name:"01/19-01/25", hours:40, reg:32, off:0, ot:0},{name:"01/26-02/01", hours:68, reg:39, off:1, ot:28}] };
-  if (/08\/17\/2026|10,732\.63|10732\.63/.test(flat)) return { file:name, rate:87.54, pto:0, holiday:0, bonus:0, pay:10732.63, weeks:[{name:"08/17-08/23", hours:40, reg:40, off:0, ot:0},{name:"08/24-08/30", hours:68, reg:39, off:1, ot:28}] };
-  const reg = hoursNear(flat, "RegPay") || hoursNear(flat, "Reg Pay");
-  const off = hoursNear(flat, "OffShft") || hoursNear(flat, "Offshift") || hoursNear(flat, "Off Shift");
-  const ot = hoursNear(flat, "OT 1") || hoursNear(flat, "OT1");
-  const holiday = hoursNear(flat, "Holiday");
-  const pto = hoursNear(flat, "PTO");
-  const rate = parseFloat(((flat.match(/RegPay[^\d]+[\d.]+\s+([\d]+\.\d{2})/i) || [])[1]) || 0);
-  const gross = parseFloat(((flat.match(/Current\s+([\d,]+\.\d{2})/) || [])[1] || "0").replace(/,/g, ""));
-  if (!reg && !off && !ot) return null;
-  return { file:name, rate, pto, holiday, bonus:0, pay:gross, weeks:[{name:"Week 1", hours:reg + holiday + pto, reg, off:0, ot:0},{name:"Week 2", hours:off + ot, reg:0, off, ot}] };
+  const weeks = [];
+  const row = /(RegPay|OffShft1\.5|OT 1\.5)\s+(\d{2}\/\d{2}\/\d{4})\s*-\s*(\d{2}\/\d{2}\/\d{4})\s+([\d.]+)\s+([\d.]+)/g;
+  let m, rate = 0;
+  while ((m = row.exec(text))){
+    const key = m[2].slice(0,5) + "-" + m[3].slice(0,5);
+    let w = weeks.find(x => x.name === key);
+    if (!w){ w = {name:key, hours:0, reg:0, off:0, ot:0}; weeks.push(w); }
+    const hours = parseFloat(m[4]);
+    w.hours += hours;
+    if (m[1] === "RegPay"){ w.reg += hours; rate = rate || parseFloat(m[5]); }
+    else if (m[1] === "OffShft1.5") w.off += hours;
+    else w.ot += hours;
+  }
+  const holiday = parseFloat(((text.match(/Holiday\s+\d{2}\/\d{2}\/\d{4}\s*-\s*\d{2}\/\d{2}\/\d{4}\s+([\d.]+)/) || [])[1]) || 0);
+  const pto = parseFloat(((text.match(/PTO\s+\d{2}\/\d{2}\/\d{4}\s*-\s*\d{2}\/\d{2}\/\d{4}\s+([\d.]+)/) || [])[1]) || 0);
+  if (weeks[0]) weeks[0].hours += holiday + pto;
+  const bonus = parseFloat(((text.match(/Bonus\s+([\d,]+\.\d{2})/) || [])[1] || "0").replace(/,/g, ""));
+  const gross = parseFloat(((text.match(/Current\s+([\d,]+\.\d{2})/) || [])[1] || "0").replace(/,/g, ""));
+  if (!weeks.length) return null;
+  return { file:name, rate, pto, holiday, bonus, pay:gross, weeks };
 }
 function draw(){
+  const page = pages.find(p => String(p.page) === document.getElementById("check").value);
   const a = document.getElementById("w1").value, b = document.getElementById("w2").value;
-  if (!a || !b){ status.textContent = "Pick both rotation weeks, then click Calculate."; return; }
-  const picks = [caps[a], caps[b]];
+  if (!page || !page.parsed){ status.textContent = "Pick a check that has earnings lines."; return; }
+  if (!a || !b){ status.textContent = "Pick both rotation weeks, then Calculate."; return; }
+  const parsed = page.parsed, picks = [caps[a], caps[b]];
   const eeRate = (Number(document.getElementById("defer").value) || 0) / 100;
   const pep = (Number(document.getElementById("pension").value) || 0) / 100;
   const base = parsed.rate || 0;
@@ -124,7 +122,7 @@ function draw(){
   const erNew = eeRate > 0 ? Math.min(eeNew * 0.5, newPay * 0.04) : 0;
   const taxOld = eeOld * 0.284, taxNew = eeNew * 0.284;
   const line = (name, old, neu, moneyish=true) => `<tr><td>${name}</td><td>${moneyish ? money(old) : num(old)}</td><td>${moneyish ? money(neu) : num(neu)}</td><td class="diff">${moneyish ? money(old - neu) : num(old - neu)}</td></tr>`;
-  document.getElementById("out").innerHTML = `<h2>${parsed.file}</h2><div class="wrap"><table><tr><th></th><th>Old, scheduled cap</th><th>New, 40 / 32 / 0</th><th class="diff">Difference</th></tr>
+  document.getElementById("out").innerHTML = `<h2>Page ${page.page}: ${page.begin} to ${page.end}</h2><div class="wrap"><table><tr><th></th><th>Old, scheduled cap</th><th>New, 40 / 32 / 0</th><th class="diff">Difference</th></tr>
     ${line("Paycheck", parsed.pay, parsed.pay)} ${line("Hours counted for retirement", oldHours, newHours, false)} ${line("PTO counted", parsed.pto, parsed.pto, false)} ${line("Holiday counted", parsed.holiday, parsed.holiday, false)} ${line("Bonus, not counted", parsed.bonus, parsed.bonus)} ${line("Pay base, straight time", oldPay, newPay)} ${line("Your 401(k)", eeOld, eeNew)} ${line("Employer 401(k)", erOld, erNew)} ${line("Pension credit", oldPay * pep, newPay * pep)} ${line("Taxes saved", taxOld, taxNew)}
   </table><div class="side"><h2>Off-shift and OT 1.5 rates</h2>${side}</div></div>
   <div class="totals"><h2>Total difference</h2><ul><li>Your 401(k): ${money(eeOld - eeNew)}</li><li>Employer 401(k): ${money(erOld - erNew)}</li><li>Pension: ${money((oldPay - newPay) * pep)}</li><li>Taxes saved: ${money(taxOld - taxNew)}</li></ul><p>Combined: ${money((eeOld - eeNew) + (erOld - erNew) + (oldPay - newPay) * pep + (taxOld - taxNew))}.</p></div>`;
