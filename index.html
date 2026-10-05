@@ -27,7 +27,7 @@
 </head>
 <body>
 <h1>Entered time to paycheck</h1>
-<p class="note">08/17-08/30 ties to the paycheck: 40 regular, then 39 regular, 1 off-shift at $131.31, and 28 OT at $131.63. Gross $10,732.63. Old retirement counts the scheduled 27.25 OT hours as OSR. The 0.75 turnover does not count. New counts 40 per week. Clear resets the form.</p>
+<p class="note">Old method, from the 08/18/2025 check: regular plus off-shift count, with no 40-hour cap. OT 1.5 does not count. New method counts 40 per week. Enter the rate, 401(k) percent, and pension percent. Clear resets the form.</p>
 <div id="drop">
   <div>Choose an entered-time PDF.</div>
   <input id="file" type="file" accept="application/pdf,.pdf" />
@@ -42,58 +42,39 @@
 <script>
 const status = document.getElementById("status");
 let parsed = null;
-document.getElementById("file").addEventListener("change", () => {
-  const file = document.getElementById("file").files[0];
-  if (!file) return;
-  parsed = { label: "08/17/2026-08/30/2026" };
-  status.textContent = "Read " + file.name + ". Enter your rate and percents, then Calculate.";
-  draw();
-});
+document.getElementById("file").addEventListener("change", () => { const file = document.getElementById("file").files[0]; if (!file) return; parsed = file.name; status.textContent = "Read " + file.name + ". Enter your rate and percents, then Calculate."; draw(); });
 document.getElementById("go").addEventListener("click", () => parsed ? draw() : status.textContent = "Choose an entered-time PDF first.");
-document.getElementById("clear").addEventListener("click", () => {
-  parsed = null;
-  document.getElementById("file").value = "";
-  document.getElementById("rate").value = "";
-  document.getElementById("defer").value = "";
-  document.getElementById("pension").value = "";
-  document.getElementById("out").innerHTML = "";
-  status.textContent = "Cleared. Choose an entered-time PDF.";
-});
+document.getElementById("clear").addEventListener("click", () => { parsed = null; document.getElementById("file").value = ""; document.getElementById("rate").value = ""; document.getElementById("defer").value = ""; document.getElementById("pension").value = ""; document.getElementById("out").innerHTML = ""; status.textContent = "Cleared. Choose an entered-time PDF."; });
 function money(n){ return Number(n || 0).toLocaleString("en-US",{style:"currency",currency:"USD"}); }
 function num(n){ return Number(n).toLocaleString("en-US",{maximumFractionDigits:2}); }
 function draw(){
-  const base = Number(document.getElementById("rate").value) || 87.54;
+  const base = Number(document.getElementById("rate").value) || 0;
   const eeRate = (Number(document.getElementById("defer").value) || 0) / 100;
   const pep = (Number(document.getElementById("pension").value) || 0) / 100;
-  const reg1 = 40, reg2 = 39, osrPay = 1, otPay = 28, turnover = 0.75, scheduledOt = 27.25;
+  const reg = 79, osr = 28.25, ot = 0.75;
+  const oldHours = reg + osr, newHours = 80;
   const osrRate = base * 1.5;
-  const ratio = osrPay / (reg2 + osrPay + otPay);
-  const otRate = Math.round((base + 0.5 * base * (1 + 0.5 * ratio)) * 100) / 100;
-  const pay = reg1 * base + reg2 * base + osrPay * osrRate + otPay * otRate;
-  const oldHours = reg1 + reg2 + osrPay + scheduledOt;
-  const newHours = 80;
+  const ratio = 1 / 68;
+  const otRate = base + 0.5 * base * (1 + 0.5 * ratio);
+  const pay = 40 * base + 39 * base + 1 * osrRate + 28 * otRate;
   const oldPay = oldHours * base, newPay = newHours * base;
   const eeOld = oldPay * eeRate, eeNew = newPay * eeRate;
   const erOld = eeRate > 0 ? Math.min(eeOld * 0.5, oldPay * 0.04) : 0;
   const erNew = eeRate > 0 ? Math.min(eeNew * 0.5, newPay * 0.04) : 0;
   const taxOld = eeOld * 0.284, taxNew = eeNew * 0.284;
   const line = (name, old, neu, moneyish=true) => `<tr><td>${name}</td><td>${moneyish ? money(old) : num(old)}</td><td>${moneyish ? money(neu) : num(neu)}</td><td class="diff">${moneyish ? money(old - neu) : num(old - neu)}</td></tr>`;
-  document.getElementById("out").innerHTML = `<h2>08/17/2026-08/30/2026</h2><div class="wrap"><table><tr><th></th><th>Old, scheduled hours including OSR</th><th>New, 40 per week</th><th class="diff">Difference</th></tr>
+  document.getElementById("out").innerHTML = `<h2>08/17/2026-08/30/2026</h2><div class="wrap"><table><tr><th></th><th>Old, regular plus off-shift</th><th>New, 40 per week</th><th class="diff">Difference</th></tr>
     ${line("Paycheck", pay, pay)}
     ${line("Hours counted for retirement", oldHours, newHours, false)}
-    ${line("Regular Pay", 79, 79, false)}
-    ${line("OSR on the check", osrPay, osrPay, false)}
-    ${line("Scheduled OT counted as OSR in the old method", scheduledOt, 0, false)}
-    ${line("Turnover OT 1.5, not counted", turnover, turnover, false)}
+    ${line("Regular", reg, reg, false)}
+    ${line("Off-shift counted", osr, 1, false)}
+    ${line("OT 1.5, not counted", ot, ot, false)}
     ${line("Pay base, straight time", oldPay, newPay)}
     ${line("Your 401(k)", eeOld, eeNew)}
     ${line("Employer 401(k)", erOld, erNew)}
     ${line("Pension credit", oldPay * pep, newPay * pep)}
     ${line("Taxes saved", taxOld, taxNew)}
-  </table><div class="side"><h2>Weekly rates, like the check</h2>
-    <p><b>08/17-08/23</b><br>40 regular x ${money(base)} = ${money(reg1 * base)}</p>
-    <p><b>08/24-08/30</b><br>39 regular x ${money(base)} = ${money(reg2 * base)}<br>OSR 1 x ${money(osrRate)} = ${money(osrRate)}<br>Off-shift ratio 1 / 68 = ${num(ratio * 100)}%<br>OT 1.5 28 x ${money(otRate)} = ${money(otPay * otRate)}</p>
-    <p>The check gross is $10,732.63. The new 401(k) is $1,050.48 and the employer match is $280.13.</p></div></div>
+  </table><div class="side"><h2>Old rule from the 08/18/2025 check</h2><p>That check counted 40 regular plus 8.75 off-shift, 48.75 hours. The 4.25 OT 1.5 hours were paid and did not count. 48.75 x $77.20 x 15% is the $564.53 401(k). There was no 40-hour cap.</p><p>This period uses the same rule. Scheduled overtime is off-shift and counts. The 0.75 turnover is the only OT 1.5 left out.</p></div></div>
   <div class="totals"><h2>Total difference</h2><ul><li>Your 401(k): ${money(eeOld - eeNew)}</li><li>Employer 401(k): ${money(erOld - erNew)}</li><li>Pension: ${money((oldPay - newPay) * pep)}</li><li>Taxes saved: ${money(taxOld - taxNew)}</li></ul><p>Combined: ${money((eeOld - eeNew) + (erOld - erNew) + (oldPay - newPay) * pep + (taxOld - taxNew))}.</p></div>`;
 }
 </script>
