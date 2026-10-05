@@ -22,8 +22,8 @@
 </style>
 </head>
 <body>
-<h1>Week of October 5</h1>
-<p class="note">Hours worked on the scheduled shift are regular. Hours worked outside the schedule are off-shift. The 15 minutes that land on the schedule stay regular. Scheduled hours you do not work do not count and do not create overtime. Enter your rate, 401(k) percent, and pension percent.</p>
+<h1>October 5-7</h1>
+<p class="note">Scheduled shift is 5:30 AM-5:30 PM. The 5:15-5:30 turnover is outside that schedule, so it is off-shift. Hours worked on the scheduled shift are regular. Hours outside it are off-shift. Scheduled hours not worked do not count. Enter your rate, 401(k) percent, and pension percent.</p>
 <label>Straight-time rate</label><input id="rate" type="number" value="" min="0" step="0.01" />
 <label>Your 401(k) percent</label><input id="defer" type="number" value="" min="0" step="0.5" />
 <label>Pension percent</label><input id="pension" type="number" value="" min="0" step="0.5" />
@@ -31,7 +31,7 @@
 <div id="out"></div>
 <script>
 const CO = 0.044;
-const reg = 0.75, off = 39.25, ot = 0, pto = 0, hol = 0;
+const reg = 0, off = 40, ot = 0, pto = 0, hol = 0;
 document.getElementById("go").onclick = draw;
 function money(n){ return Number(n || 0).toLocaleString("en-US",{style:"currency",currency:"USD"}); }
 function num(n){ return Number(n).toLocaleString("en-US",{maximumFractionDigits:2}); }
@@ -54,8 +54,8 @@ function draw(){
   const line = (name, old, neu, moneyish=true) => `<tr><td>${name}</td><td>${moneyish ? money(old) : num(old)}</td><td>${moneyish ? money(neu) : num(neu)}</td><td class="diff">${moneyish ? money(old - neu) : num(old - neu)}</td></tr>`;
   document.getElementById("out").innerHTML = `<div class="wrap"><table><tr><th></th><th>Old method</th><th>New method</th><th class="diff">Difference</th></tr>
     ${line("Paycheck", pay, pay)}
-    ${line("Regular, 15 minutes on schedule x 3 days", reg, reg, false)}
-    ${line("Off-shift, worked outside the day schedule", off, off, false)}
+    ${line("Regular, inside 5:30 AM-5:30 PM", reg, reg, false)}
+    ${line("Off-shift, including 5:15-5:30 turnover", off, off, false)}
     ${line("PTO", pto, pto, false)}
     ${line("Holiday, paid, not counted", hol, hol, false)}
     ${line("OT hours counted", ot, 0, false)}
@@ -65,7 +65,7 @@ function draw(){
     ${line("Employer 401(k)", erOld, erNew)}
     ${line("Pension credit", oldPay * pep, newPay * pep)}
     ${line("Taxes saved", taxOld, taxNew)}
-  </table><div class="side"><h2>Why 39.25 is off-shift</h2><p>Monday 10/5 through Wednesday 10/7 are scheduled 5:15 AM-5:30 PM. The work is 5:15 PM-5:30 AM. Only the 15 minutes on the schedule is regular. The rest is off-shift.</p><p>15 minutes x 3 days = 0.75 regular. Off-shift = 39.25. Those day-shift hours you do not work are not counted.</p><p>Off-shift ratio = 39.25 / 40 = 98.13%. OT rate = rate + half of the regular rate. Off-shift pay stays time-and-a-half. Friday-Sunday nights are on the schedule, so those hours are regular if worked. The Sunday night that ends Monday is the next period.</p><p>Calculated OT rate: ${base ? rate4(otRate) : "enter a rate"}.</p></div></div>
+  </table><div class="side"><h2>Turnover is off-shift</h2><p>October 5-7 are scheduled 5:30 AM-5:30 PM. The 5:15-5:30 turnover is outside that schedule, so it is off-shift, not regular.</p><p>The 39.25 hours outside the day shift plus 0.75 hours of turnover is 40 off-shift hours. No regular hours on these three days. The scheduled day hours you do not work are not counted.</p><p>Off-shift ratio = 100%. OT rate = ${base ? rate4(otRate) : "enter a rate"}. Off-shift pay stays time-and-a-half.</p></div></div>
   <div class="totals"><h2>Total difference</h2><ul><li>Your 401(k): ${money(eeOld - eeNew)}</li><li>Employer 401(k): ${money(erOld - erNew)}</li><li>Pension: ${money((oldPay - newPay) * pep)}</li><li>Taxes saved: ${money(taxOld - taxNew)}</li></ul></div>`;
 }
 draw();
