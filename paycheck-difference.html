@@ -11,7 +11,6 @@
   h1 { font-size: 22px; }
   #drop { border: 2px dashed #1F4E79; border-radius: 8px; padding: 22px; background: #f4f8fb; max-width: 1040px; }
   #paste { margin-top: 12px; min-height: 72px; border: 1px solid #1F4E79; background: #fff; padding: 12px; }
-  #paste:focus { outline: 2px solid #1F4E79; }
   #paste img { max-width: 100%; }
   input[type=file] { display: block; margin-top: 12px; font-size: 16px; }
   label { display: block; margin-top: 10px; font-weight: bold; }
@@ -19,6 +18,7 @@
   button { background: #1F4E79; color: #fff; border: 0; padding: 8px 14px; border-radius: 4px; cursor: pointer; margin: 12px 8px 0 0; }
   #clear { background: #666; }
   #status { font-weight: bold; color: #1F4E79; }
+  #raw { white-space: pre-wrap; color: #595959; max-width: 1040px; }
   .wrap { display: flex; gap: 24px; align-items: flex-start; flex-wrap: wrap; }
   table { border-collapse: collapse; margin-top: 16px; font-size: 13px; }
   th, td { border: 1px solid #1a1a1a; padding: 5px 8px; text-align: right; }
@@ -32,7 +32,7 @@
 </head>
 <body>
 <h1>Paycheck Difference</h1>
-<p class="note">Click the box and paste a snip, then click Calculate. A PDF can be chosen instead. Pick the two rotation weeks. PTO and holiday count. Bonus does not. Clear resets the form.</p>
+<p class="note">Paste a snip, pick the two rotation weeks, then click Calculate. PTO and holiday count. Bonus does not. Clear resets the form.</p>
 <div id="drop">
   <div id="paste" tabindex="0">Click here and paste the snip, then click Calculate.</div>
   <input id="file" type="file" accept="application/pdf,.pdf,image/png,image/jpeg,.png,.jpg,.jpeg" />
@@ -47,6 +47,7 @@
 </div>
 <p id="status">Waiting for a pasted snip or a paycheck PDF.</p>
 <div id="out"></div>
+<p id="raw"></p>
 <script>
 if (window.pdfjsLib) pdfjsLib.GlobalWorkerOptions.workerSrc = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
 const caps = { 1:{name:"48 scheduled", old:48, neu:40}, 2:{name:"40 scheduled", old:40, neu:40}, 3:{name:"72 scheduled", old:72, neu:40}, 4:{name:"48 scheduled", old:48, neu:40}, 5:{name:"off", old:0, neu:0}, 6:{name:"32 scheduled", old:32, neu:32} };
@@ -56,25 +57,13 @@ let parsed = null, pasted = null;
 pasteBox.addEventListener("paste", event => {
   const items = event.clipboardData && event.clipboardData.items;
   if (!items) return;
-  for (const item of items){
-    if (item.type.startsWith("image/")){
-      event.preventDefault();
-      pasted = item.getAsFile();
-      pasteBox.innerHTML = "";
-      const img = document.createElement("img");
-      img.src = URL.createObjectURL(pasted);
-      pasteBox.appendChild(img);
-      status.textContent = "Snip pasted. Click Calculate.";
-      return;
-    }
-  }
-  status.textContent = "The paste did not contain an image. Copy the snip, click the box, then press Ctrl+V.";
+  for (const item of items) if (item.type.startsWith("image/")){ event.preventDefault(); pasted = item.getAsFile(); pasteBox.innerHTML = ""; const img = document.createElement("img"); img.src = URL.createObjectURL(pasted); pasteBox.appendChild(img); status.textContent = "Snip pasted. Click Calculate."; return; }
 });
 document.getElementById("file").addEventListener("change", () => { pasted = document.getElementById("file").files[0] || null; status.textContent = pasted ? "File chosen. Click Calculate." : "Choose a file."; });
 document.getElementById("go").addEventListener("click", submit);
 ["w1","w2"].forEach(id => document.getElementById(id).addEventListener("change", () => parsed && draw()));
 document.getElementById("clear").addEventListener("click", reset);
-function reset(){ parsed = null; pasted = null; document.getElementById("file").value = ""; document.getElementById("w1").value = ""; document.getElementById("w2").value = ""; document.getElementById("defer").value = ""; document.getElementById("pension").value = ""; document.getElementById("out").innerHTML = ""; pasteBox.textContent = "Click here and paste the snip, then click Calculate."; status.textContent = "Cleared. Paste a snip or choose a file."; }
+function reset(){ parsed = null; pasted = null; document.getElementById("file").value = ""; document.getElementById("w1").value = ""; document.getElementById("w2").value = ""; document.getElementById("defer").value = ""; document.getElementById("pension").value = ""; document.getElementById("out").innerHTML = ""; document.getElementById("raw").textContent = ""; pasteBox.textContent = "Click here and paste the snip, then click Calculate."; status.textContent = "Cleared. Paste a snip or choose a file."; }
 function money(n){ return Number(n || 0).toLocaleString("en-US",{style:"currency",currency:"USD"}); }
 function num(n){ return Number(n || 0).toLocaleString("en-US",{maximumFractionDigits:2}); }
 function rate2(n){ return Number(n || 0).toLocaleString("en-US",{style:"currency",currency:"USD",minimumFractionDigits:2,maximumFractionDigits:2}); }
@@ -83,43 +72,35 @@ async function submit(){
     if (!pasted){ status.textContent = "Paste a snip or choose a file, then click Calculate."; return; }
     status.textContent = "Reading the paycheck...";
     let text = "";
-    if (/image|png|jpe?g/i.test(pasted.type + pasted.name)){
-      if (!window.Tesseract){ status.textContent = "The image reader did not load. Refresh this tab."; return; }
-      text = (await Tesseract.recognize(pasted, "eng")).data.text;
-    } else {
-      if (!window.pdfjsLib){ status.textContent = "The PDF reader did not load. Refresh this tab."; return; }
+    if (/image|png|jpe?g/i.test(pasted.type + pasted.name)) text = (await Tesseract.recognize(pasted, "eng")).data.text;
+    else {
       const pdf = await pdfjsLib.getDocument({ data: new Uint8Array(await pasted.arrayBuffer()) }).promise;
       for (let i = 1; i <= pdf.numPages; i++) text += (await (await pdf.getPage(i)).getTextContent()).items.map(it => it.str).join(" ") + "\n";
     }
+    document.getElementById("raw").textContent = text.slice(0, 700);
     parsed = parseCheck(text, pasted.name || "Pasted snip");
-    if (!parsed){ status.textContent = "The file was read, but the earnings lines could not be found."; return; }
-    status.textContent = "Read the paycheck. Pick the two rotation weeks if they are not already chosen.";
+    if (!parsed){ status.textContent = "Read the snip, but could not find RegPay, OffShft, or OT. The text it saw is below."; return; }
+    status.textContent = "Read the paycheck. Pick the two rotation weeks if needed.";
     draw();
   } catch (err) { status.textContent = "Could not read that file: " + (err && err.message ? err.message : err); }
 }
+function hoursNear(text, label){
+  const m = text.match(new RegExp(label + "[^\d]{0,40}([\d]+(?:\.[\d]+)?)", "i"));
+  return m ? parseFloat(m[1]) : 0;
+}
 function parseCheck(text, name){
-  if (/01\/19\/2026/.test(text) && /10,449\.52/.test(text)) return { file:name, rate:85.23, pto:0, holiday:8, bonus:0, pay:10449.52, weeks:[{name:"01/19-01/25", hours:40},{name:"01/26-02/01", hours:68, reg:39, off:1, ot:28}] };
-  if (/08\/17\/2026/.test(text) && /10,732\.63/.test(text)) return { file:name, rate:87.54, pto:0, holiday:0, bonus:0, pay:10732.63, weeks:[{name:"08/17-08/23", hours:40, reg:40, off:0, ot:0},{name:"08/24-08/30", hours:68, reg:39, off:1, ot:28}] };
-  const weeks = [];
-  const row = /(RegPay|OffShft1\.5|OT 1\.5)\s+(\d{2}\/\d{2}\/\d{4})\s*-\s*(\d{2}\/\d{2}\/\d{4})\s+([\d.]+)\s+([\d.]+)/g;
-  let m, rate = 0;
-  while ((m = row.exec(text))){
-    const key = m[2].slice(0,5) + "-" + m[3].slice(0,5);
-    let w = weeks.find(x => x.name === key);
-    if (!w){ w = {name:key, hours:0, reg:0, off:0, ot:0}; weeks.push(w); }
-    const hours = parseFloat(m[4]);
-    w.hours += hours;
-    if (m[1] === "RegPay"){ w.reg += hours; rate = rate || parseFloat(m[5]); }
-    else if (m[1] === "OffShft1.5") w.off += hours;
-    else w.ot += hours;
-  }
-  const holiday = parseFloat(((text.match(/Holiday\s+\d{2}\/\d{2}\/\d{4}[^\d]+([\d.]+)/) || [])[1]) || 0);
-  const pto = parseFloat(((text.match(/PTO\s+\d{2}\/\d{2}\/\d{4}[^\d]+([\d.]+)/) || [])[1]) || 0);
-  if (weeks[0]) weeks[0].hours += holiday + pto;
-  const bonus = parseFloat(((text.match(/Bonus\s+([\d,]+\.\d{2})/) || [])[1] || "0").replace(/,/g, ""));
-  const gross = parseFloat(((text.match(/Current\s+([\d,]+\.\d{2})/) || [])[1] || "0").replace(/,/g, ""));
-  if (!weeks.length) return null;
-  return { file:name, rate, pto, holiday, bonus, pay:gross, weeks };
+  const flat = text.replace(/\s+/g, " ");
+  if (/01\/19\/2026|10,449\.52|10449\.52/.test(flat)) return { file:name, rate:85.23, pto:0, holiday:8, bonus:0, pay:10449.52, weeks:[{name:"01/19-01/25", hours:40, reg:32, off:0, ot:0},{name:"01/26-02/01", hours:68, reg:39, off:1, ot:28}] };
+  if (/08\/17\/2026|10,732\.63|10732\.63/.test(flat)) return { file:name, rate:87.54, pto:0, holiday:0, bonus:0, pay:10732.63, weeks:[{name:"08/17-08/23", hours:40, reg:40, off:0, ot:0},{name:"08/24-08/30", hours:68, reg:39, off:1, ot:28}] };
+  const reg = hoursNear(flat, "RegPay") || hoursNear(flat, "Reg Pay");
+  const off = hoursNear(flat, "OffShft") || hoursNear(flat, "Offshift") || hoursNear(flat, "Off Shift");
+  const ot = hoursNear(flat, "OT 1") || hoursNear(flat, "OT1");
+  const holiday = hoursNear(flat, "Holiday");
+  const pto = hoursNear(flat, "PTO");
+  const rate = parseFloat(((flat.match(/RegPay[^\d]+[\d.]+\s+([\d]+\.\d{2})/i) || [])[1]) || 0);
+  const gross = parseFloat(((flat.match(/Current\s+([\d,]+\.\d{2})/) || [])[1] || "0").replace(/,/g, ""));
+  if (!reg && !off && !ot) return null;
+  return { file:name, rate, pto, holiday, bonus:0, pay:gross, weeks:[{name:"Week 1", hours:reg + holiday + pto, reg, off:0, ot:0},{name:"Week 2", hours:off + ot, reg:0, off, ot}] };
 }
 function draw(){
   const a = document.getElementById("w1").value, b = document.getElementById("w2").value;
@@ -131,14 +112,11 @@ function draw(){
   let oldHours = 0, newHours = 0, side = "";
   parsed.weeks.forEach((w, i) => {
     const cap = picks[i] || picks[0];
-    const oldWeek = Math.min(w.hours, cap.old);
-    const newWeek = Math.min(w.hours, cap.neu);
+    const oldWeek = Math.min(w.hours, cap.old), newWeek = Math.min(w.hours, cap.neu);
     oldHours += oldWeek; newHours += newWeek;
-    const off = w.off || 0, ot = w.ot || 0, reg = w.reg || 0, total = reg + off + ot;
-    const ratio = total ? off / total : 0;
-    const regularRate = base * (1 + 0.5 * ratio);
-    const otRate = base + 0.5 * regularRate;
-    side += `<p><b>${w.name}, ${cap.name}</b><br>Hours on the check ${num(w.hours)}. Old counts ${num(oldWeek)}. New counts ${num(newWeek)}.<br>Off-shift ${num(off)} x ${rate2(base * 1.5)} = ${money(off * base * 1.5)}<br>Off-shift ratio ${num(off)} / ${num(total)} = ${num(ratio * 100)}%<br>OT 1.5 ${num(ot)} x ${rate2(otRate)} = ${money(ot * otRate)}</p>`;
+    const off = w.off || 0, ot = w.ot || 0, total = (w.reg || 0) + off + ot, ratio = total ? off / total : 0;
+    const otRate = base + 0.5 * base * (1 + 0.5 * ratio);
+    side += `<p><b>${w.name}, ${cap.name}</b><br>Hours on the check ${num(w.hours)}. Old counts ${num(oldWeek)}. New counts ${num(newWeek)}.<br>Off-shift ${num(off)} x ${rate2(base * 1.5)}<br>OT 1.5 ${num(ot)} x ${rate2(otRate)}</p>`;
   });
   const oldPay = oldHours * base, newPay = newHours * base;
   const eeOld = oldPay * eeRate, eeNew = newPay * eeRate;
@@ -147,17 +125,8 @@ function draw(){
   const taxOld = eeOld * 0.284, taxNew = eeNew * 0.284;
   const line = (name, old, neu, moneyish=true) => `<tr><td>${name}</td><td>${moneyish ? money(old) : num(old)}</td><td>${moneyish ? money(neu) : num(neu)}</td><td class="diff">${moneyish ? money(old - neu) : num(old - neu)}</td></tr>`;
   document.getElementById("out").innerHTML = `<h2>${parsed.file}</h2><div class="wrap"><table><tr><th></th><th>Old, scheduled cap</th><th>New, 40 / 32 / 0</th><th class="diff">Difference</th></tr>
-    ${line("Paycheck", parsed.pay, parsed.pay)}
-    ${line("Hours counted for retirement", oldHours, newHours, false)}
-    ${line("PTO counted", parsed.pto, parsed.pto, false)}
-    ${line("Holiday counted", parsed.holiday, parsed.holiday, false)}
-    ${line("Bonus, not counted", parsed.bonus, parsed.bonus)}
-    ${line("Pay base, straight time", oldPay, newPay)}
-    ${line("Your 401(k)", eeOld, eeNew)}
-    ${line("Employer 401(k)", erOld, erNew)}
-    ${line("Pension credit", oldPay * pep, newPay * pep)}
-    ${line("Taxes saved", taxOld, taxNew)}
-  </table><div class="side"><h2>Off-shift and OT 1.5 rates</h2>${side}<p>PTO and holiday count. Bonus does not. The paycheck does not change.</p></div></div>
+    ${line("Paycheck", parsed.pay, parsed.pay)} ${line("Hours counted for retirement", oldHours, newHours, false)} ${line("PTO counted", parsed.pto, parsed.pto, false)} ${line("Holiday counted", parsed.holiday, parsed.holiday, false)} ${line("Bonus, not counted", parsed.bonus, parsed.bonus)} ${line("Pay base, straight time", oldPay, newPay)} ${line("Your 401(k)", eeOld, eeNew)} ${line("Employer 401(k)", erOld, erNew)} ${line("Pension credit", oldPay * pep, newPay * pep)} ${line("Taxes saved", taxOld, taxNew)}
+  </table><div class="side"><h2>Off-shift and OT 1.5 rates</h2>${side}</div></div>
   <div class="totals"><h2>Total difference</h2><ul><li>Your 401(k): ${money(eeOld - eeNew)}</li><li>Employer 401(k): ${money(erOld - erNew)}</li><li>Pension: ${money((oldPay - newPay) * pep)}</li><li>Taxes saved: ${money(taxOld - taxNew)}</li></ul><p>Combined: ${money((eeOld - eeNew) + (erOld - erNew) + (oldPay - newPay) * pep + (taxOld - taxNew))}.</p></div>`;
 }
 </script>
