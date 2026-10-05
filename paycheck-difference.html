@@ -150,7 +150,7 @@ function draw(){
   const erOld = eeOld > 0 ? Math.min(eeOld * 0.5, oldPay * 0.04) : 0;
   const erNew = eeNew > 0 ? Math.min(eeNew * 0.5, newPay * 0.04) : 0;
   const taxOld = eeOld * 0.284, taxNew = eeNew * 0.284;
-  const line = (name, old, neu, actual, moneyish=true) => `<tr><td>${name}</td><td>${moneyish ? money(old) : num(old)}</td><td>${moneyish ? money(neu) : num(neu)}</td><td>${moneyish ? money(actual) : num(actual)}</td><td class="diff">${moneyish ? money(old - neu) : num(old - neu)}</td></tr>`;
+  const line = (name, old, neu, actual, moneyish=true) => `<tr><td>${name}</td><td>${moneyish ? money(old) : num(old)}</td><td>${moneyish ? money(neu) : num(neu)}</td><td>${moneyish ? money(actual) : num(actual)}</td><td class="diff">${moneyish ? money(old - neu) : num(old - neu)}</td><td class="diff">${moneyish ? money(old - actual) : num(old - actual)}</td></tr>`;
   const regHours = parsed.weeks.reduce((s,w) => s + (w.reg || 0), 0);
   const offHours = parsed.weeks.reduce((s,w) => s + (w.off || 0), 0);
   const otHours = parsed.weeks.reduce((s,w) => s + (w.ot || 0), 0);
@@ -163,7 +163,7 @@ function draw(){
   const ptoPay = (parsed.pto || 0) * base;
   const holidayPay = (parsed.holiday || 0) * base;
   const stub = (parsed.lines || []).map(x => "<p>" + x + "</p>").join("") || "<p>Gross " + money(parsed.pay) + "</p>";
-  document.getElementById("out").innerHTML = `<h2>Page ${page.page}: ${page.begin} to ${page.end}</h2><div class="wrap"><table><tr><th></th><th>Old</th><th>New</th><th>Actual check</th><th class="diff">Old minus new</th></tr>
+  document.getElementById("out").innerHTML = `<h2>Page ${page.page}: ${page.begin} to ${page.end}</h2><div class="wrap"><table><tr><th></th><th>Old</th><th>New</th><th>Actual check</th><th class="diff">Old minus new</th><th class="diff">Old minus actual</th></tr>
     ${line("RegPay " + num(regHours) + " x " + rate2(base), regPay, regPay, regPay)} ${line("OffShft1.5 " + num(offHours) + " x " + rate2(base * 1.5), offPay, offPay, offPay)} ${line("OT 1.5 " + num(otHours) + " hrs", otPay, otPay, otPay)} ${line("PTO " + num(parsed.pto) + " x " + rate2(base), ptoPay, ptoPay, ptoPay)} ${line("Holiday " + num(parsed.holiday) + " x " + rate2(base), holidayPay, holidayPay, holidayPay)} ${line("Paycheck", parsed.pay, parsed.pay, parsed.pay)} ${line("Hours counted for retirement", oldHours, newHours, actualHours, false)} ${line("Pay base, straight time", oldPay, newPay, actualHours * base)} ${line("Your 401(k)", eeOld, eeNew, actualEe)} ${line("Employer 401(k)", erOld, erNew, actualEr)} ${line("Pension credit", oldPay * pep, newPay * pep, 0)} ${line("Taxes saved", taxOld, taxNew, actualEe * 0.284)}
   </table><div class="side"><h2>Paycheck</h2><p>Gross ${money(parsed.pay)}</p>${stub}<p>401(k) this check ${money(parsed.deferCurrent || 0)}. Deferred total ${money(parsed.deferYtd || 0)}.</p><p>${oldCap.year} limit ${money(oldCap.limit)}. Already deferred before this check ${money(oldCap.limit - oldCap.room)}.</p></div></div>
   <div class="wrap"><div class="side"><h2>OT 1.5</h2>${side}</div><div class="totals"><h2>Total difference</h2><ul><li>Your 401(k): ${money(eeOld - eeNew)}</li><li>Employer 401(k): ${money(erOld - erNew)}</li><li>Pension: ${money((oldPay - newPay) * pep)}</li><li>Taxes saved: ${money(taxOld - taxNew)}</li></ul><p>Combined: ${money((eeOld - eeNew) + (erOld - erNew) + (oldPay - newPay) * pep + (taxOld - taxNew))}.</p></div></div>`;
