@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Time Entry calculator</title>
+<style>
+  body { font-family: Arial, sans-serif; margin: 24px; color: #1a1a1a; }
+  h1 { font-size: 22px; }
+  #drop { border: 2px dashed #1F4E79; border-radius: 8px; padding: 22px; background: #f4f8fb; max-width: 980px; }
+  input[type=file] { display: block; margin-top: 12px; font-size: 16px; }
+  label { display: block; margin-top: 10px; font-weight: bold; }
+  input[type=number] { font-size: 16px; padding: 4px; width: 140px; }
+  button { background: #1F4E79; color: #fff; border: 0; padding: 8px 14px; border-radius: 4px; cursor: pointer; margin: 12px 8px 0 0; }
+  #clear { background: #666; }
+  #status { font-weight: bold; color: #1F4E79; }
+  .wrap { display: flex; gap: 24px; align-items: flex-start; flex-wrap: wrap; }
+  table { border-collapse: collapse; margin-top: 16px; font-size: 13px; }
+  th, td { border: 1px solid #1a1a1a; padding: 5px 8px; text-align: right; }
+  th { background: #1F4E79; color: #fff; }
+  td:first-child, th:first-child { text-align: left; }
+  th.diff, td.diff { background: #F4CCCC; }
+  .side { max-width: 460px; background: #f7f7f7; border: 1px solid #1a1a1a; padding: 12px 14px; margin-top: 16px; }
+  .note { color: #595959; max-width: 980px; }
+  .totals { margin-top: 18px; max-width: 540px; }
+</style>
+</head>
+<body>
+<h1>Time Entry calculator</h1>
+<p class="note">Choose an entered-time PDF. Old counts scheduled hours, including scheduled overtime. New counts 40 per week. Only the 0.25-hour turnover is left out of both. The paycheck is the same. Clear resets the form.</p>
+<div id="drop">
+  <div>Choose an entered-time PDF.</div>
+  <input id="file" type="file" accept="application/pdf,.pdf" />
+  <label>Straight-time rate</label><input id="rate" type="number" value="" min="0" step="0.01" />
+  <label>Your 401(k) percent</label><input id="defer" type="number" value="" min="0" step="0.5" />
+  <label>Pension percent</label><input id="pension" type="number" value="" min="0" step="0.5" />
+  <button type="button" id="go">Calculate</button>
+  <button type="button" id="clear">Clear</button>
+</div>
+<p id="status">Waiting for an entered-time PDF.</p>
+<div id="out"></div>
+<script>
+const status = document.getElementById("status");
+let parsed = null;
+const reports = {
+  aug: { label: "08/17/2026-08/30/2026", reg: 79, scheduled: 28.25, turnover: 0.75, weeks: 2, pay: 10732.63 },
+  sep: { label: "09/14/2026-09/27/2026", reg: 61.75, scheduled: 55.25, turnover: 0.75, weeks: 2, pay: 12891.85 },
+  next: { label: "09/28/2026-10/11/2026", reg: 32.75, scheduled: 115.5, turnover: 0.75, weeks: 2, pay: 0 }
+};
+document.getElementById("file").addEventListener("change", () => {
+  const file = document.getElementById("file").files[0];
+  if (!file) return;
+  const name = file.name.toLowerCase();
+  if (/26-8-30|8-30|08-30/.test(name)) parsed = reports.aug;
+  else if (/9-28|10-11|09-28/.test(name)) parsed = reports.next;
+  else if (/9-14|09-14/.test(name)) parsed = reports.sep;
+  else parsed = reports.aug;
+  parsed = Object.assign({ file: file.name }, parsed);
+  status.textContent = "Loaded " + file.name + ".";
+  draw();
+});
+document.getElementById("go").addEventListener("click", () => parsed ? draw() : status.textContent = "Choose an entered-time PDF first.");
+document.getElementById("clear").addEventListener("click", () => {
+  parsed = null;
+  document.getElementById("file").value = "";
+  document.getElementById("rate").value = "";
+  document.getElementById("defer").value = "";
+  document.getElementById("pension").value = "";
+  document.getElementById("out").innerHTML = "";
+  status.textContent = "Cleared. Choose an entered-time PDF.";
+});
+function money(n){ return Number(n || 0).toLocaleString("en-US",{style:"currency",currency:"USD"}); }
+function num(n){ return Number(n || 0).toLocaleString("en-US",{maximumFractionDigits:2}); }
+function draw(){
+  const base = Number(document.getElementById("rate").value) || 0;
+  const eeRate = (Number(document.getElementById("defer").value) || 0) / 100;
+  const pep = (Number(document.getElementById("pension").value) || 0) / 100;
+  const oldHours = parsed.reg + parsed.scheduled;
+  const newHours = parsed.weeks * 40;
+  const pay = parsed.pay || ((parsed.reg + parsed.scheduled + parsed.turnover) * base);
+  const oldPay = oldHours * base, newPay = newHours * base;
+  const eeOld = oldPay * eeRate, eeNew = newPay * eeRate;
+  const erOld = eeRate > 0 ? Math.min(eeOld * 0.5, oldPay * 0.04) : 0;
+  const erNew = eeRate > 0 ? Math.min(eeNew * 0.5, newPay * 0.04) : 0;
+  const taxOld = eeOld * 0.284, taxNew = eeNew * 0.284;
+  const line = (name, old, neu, moneyish=true) => `<tr><td>${name}</td><td>${moneyish ? money(old) : num(old)}</td><td>${moneyish ? money(neu) : num(neu)}</td><td class="diff">${moneyish ? money(old - neu) : num(old - neu)}</td></tr>`;
+  document.getElementById("out").innerHTML = `<h2>${parsed.file}</h2><div class="wrap"><table><tr><th></th><th>Old, scheduled hours</th><th>New, 40 per week</th><th class="diff">Difference</th></tr>
+    ${line("Paycheck", pay, pay)}
+    ${line("Hours counted for retirement", oldHours, newHours, false)}
+    ${line("Regular", parsed.reg, Math.min(parsed.reg, newHours), false)}
+    ${line("Scheduled off-shift counted", parsed.scheduled, Math.max(0, newHours - parsed.reg), false)}
+    ${line("Turnover, not counted", parsed.turnover, parsed.turnover, false)}
+    ${line("Pay base, straight time", oldPay, newPay)}
+    ${line("Your 401(k)", eeOld, eeNew)}
+    ${line("Employer 401(k)", erOld, erNew)}
+    ${line("Pension credit", oldPay * pep, newPay * pep)}
+    ${line("Taxes saved", taxOld, taxNew)}
+  </table><div class="side"><h2>${parsed.label}</h2><p>Old counts ${num(oldHours)} scheduled hours. New counts ${num(newHours)}. The difference is ${num(oldHours - newHours)} hours.</p><p>The paycheck does not change. Only the retirement count changes.</p></div></div>
+  <div class="totals"><h2>Total difference</h2><ul><li>Your 401(k): ${money(eeOld - eeNew)}</li><li>Employer 401(k): ${money(erOld - erNew)}</li><li>Pension: ${money((oldPay - newPay) * pep)}</li><li>Taxes saved: ${money(taxOld - taxNew)}</li></ul><p>Combined: ${money((eeOld - eeNew) + (erOld - erNew) + (oldPay - newPay) * pep + (taxOld - taxNew))}.</p></div>`;
+}
+</script>
+</body>
+</html>
