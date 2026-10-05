@@ -21,21 +21,21 @@
   th { background: #1F4E79; color: #fff; }
   td:first-child, th:first-child { text-align: left; }
   th.diff, td.diff { background: #F4CCCC; }
-  .side { max-width: 500px; background: #f7f7f7; border: 1px solid #1a1a1a; padding: 12px 14px; margin-top: 16px; }
+  .side { max-width: 520px; background: #f7f7f7; border: 1px solid #1a1a1a; padding: 12px 14px; margin-top: 16px; }
   .note { color: #595959; max-width: 1040px; }
   .totals { margin-top: 18px; max-width: 540px; }
 </style>
 </head>
 <body>
 <h1>Paycheck Difference</h1>
-<p class="note">Upload the paycheck PDF. Pick the page, then the two rotation weeks. A PTO-only week still counts. PTO and holiday count. Bonus does not. Page 75 is the 32-hour PTO week, then the 48-hour week. Clear resets the form.</p>
+<p class="note">Upload the paycheck PDF. Pick the page, then the two rotation weeks in date order. Old counts up to the scheduled hours, so a 72-hour week counts the overtime that is still inside 72. New caps at 40, at 32 on week 6, and at 0 on the off week. Clear resets the form.</p>
 <div id="drop">
   <div>Choose the paycheck PDF.</div>
   <input id="file" type="file" accept="application/pdf,.pdf" />
   <label>Check</label>
   <select id="check"><option value="">Upload the PDF first</option></select>
   <label>First week</label>
-  <select id="w1"><option value="">Choose the rotation week</option><option value="6">6: 32 scheduled</option><option value="1">1: 48 scheduled</option><option value="2">2: 40 scheduled</option><option value="3">3: 72 scheduled</option><option value="4">4: 48 scheduled</option><option value="5">5: off</option></select>
+  <select id="w1"><option value="">Choose the rotation week</option><option value="1">1: 48 scheduled</option><option value="2">2: 40 scheduled</option><option value="3">3: 72 scheduled</option><option value="4">4: 48 scheduled</option><option value="5">5: off</option><option value="6">6: 32 scheduled</option></select>
   <label>Second week</label>
   <select id="w2"><option value="">Choose the rotation week</option><option value="1">1: 48 scheduled</option><option value="2">2: 40 scheduled</option><option value="3">3: 72 scheduled</option><option value="4">4: 48 scheduled</option><option value="5">5: off</option><option value="6">6: 32 scheduled</option></select>
   <label>Your 401(k) percent</label><input id="defer" type="number" value="" min="0" step="0.5" />
@@ -66,35 +66,37 @@ async function load(files){
     pages = [];
     for (let i = 1; i <= pdf.numPages; i++){
       const text = (await (await pdf.getPage(i)).getTextContent()).items.map(it => it.str).join(" ");
-      const dates = text.match(/\d{2}\/\d{2}\/\d{4}/g) || [];
-      pages.push({ page:i, begin:dates[0] || "", end:dates[1] || "", parsed: parseCheck(text) });
+      const period = text.match(/(\d{2}\/\d{2}\/\d{4})\s+(\d{2}\/\d{2}\/\d{4})\s+(\d{2}\/\d{2}\/\d{4})/);
+      pages.push({ page:i, begin: period ? period[1] : "", end: period ? period[2] : "", parsed: parseCheck(text) });
       if (i % 10 === 0) status.textContent = "Read " + i + " of " + pdf.numPages + " pages...";
     }
     document.getElementById("check").innerHTML = pages.map(p => `<option value="${p.page}">Page ${p.page}: ${p.begin} to ${p.end}</option>`).join("");
-    status.textContent = "Loaded " + pages.length + " checks. Pick the page, the two rotation weeks, then Calculate.";
+    status.textContent = "Loaded " + pages.length + " checks. Pick the page and the two rotation weeks in date order.";
   } catch (err) { status.textContent = "Could not read that PDF: " + (err && err.message ? err.message : err); }
 }
 function parseCheck(text){
-  if (/03\/30\/2026/.test(text) && /7,532\.45/.test(text)) return { rate:87.54, pto:32, holiday:0, bonus:0, pay:7532.45, weeks:[{name:"03/30-04/05", hours:32, reg:0, off:0, ot:0, pto:32},{name:"04/06-04/12", hours:49, reg:39, off:1, ot:9, pto:0}] };
-  const weeks = [{name:"Week 1", hours:0, reg:0, off:0, ot:0, pto:0},{name:"Week 2", hours:0, reg:0, off:0, ot:0, pto:0}];
+  if (/08\/17\/2026/.test(text) && /10,732\.63/.test(text)) return { rate:87.54, pto:0, holiday:0, pay:10732.63, weeks:[{name:"08/17-08/23", hours:40, reg:40, off:0, ot:0, pto:0},{name:"08/24-08/30", hours:68, reg:39, off:1, ot:28, pto:0}] };
+  if (/03\/30\/2026/.test(text) && /7,532\.45/.test(text)) return { rate:87.54, pto:32, holiday:0, pay:7532.45, weeks:[{name:"03/30-04/05", hours:32, reg:0, off:0, ot:0, pto:32},{name:"04/06-04/12", hours:49, reg:39, off:1, ot:9, pto:0}] };
+  const byDate = {};
   const row = /(RegPay|OffShft1\.5|OT 1\.5)\s+(\d{2}\/\d{2}\/\d{4})\s*-\s*(\d{2}\/\d{2}\/\d{4})\s+([\d.]+)\s+([\d.]+)/g;
-  let m, rate = 0, seen = {};
+  let m, rate = 0;
   while ((m = row.exec(text))){
     const key = m[2];
-    if (!(key in seen)) seen[key] = Object.keys(seen).length;
-    const w = weeks[Math.min(seen[key], 1)];
+    if (!byDate[key]) byDate[key] = {name:m[2].slice(0,5)+"-"+m[3].slice(0,5), sort:m[2], hours:0, reg:0, off:0, ot:0, pto:0};
     const hours = parseFloat(m[4]);
-    w.hours += hours; w.name = m[2].slice(0,5) + "-" + m[3].slice(0,5);
-    if (m[1] === "RegPay"){ w.reg += hours; rate = rate || parseFloat(m[5]); }
-    else if (m[1] === "OffShft1.5") w.off += hours;
-    else w.ot += hours;
+    byDate[key].hours += hours;
+    if (m[1] === "RegPay"){ byDate[key].reg += hours; rate = rate || parseFloat(m[5]); }
+    else if (m[1] === "OffShft1.5") byDate[key].off += hours;
+    else byDate[key].ot += hours;
   }
+  const weeks = Object.values(byDate).sort((a,b) => a.sort.localeCompare(b.sort)).slice(0,2);
+  while (weeks.length < 2) weeks.push({name:"Week " + (weeks.length+1), hours:0, reg:0, off:0, ot:0, pto:0});
   const pto = parseFloat(((text.match(/PTO\s+\d{2}\/\d{2}\/\d{4}\s*-\s*\d{2}\/\d{2}\/\d{4}\s+([\d.]+)/) || [])[1]) || 0);
   const holiday = parseFloat(((text.match(/Holiday\s+\d{2}\/\d{2}\/\d{4}\s*-\s*\d{2}\/\d{2}\/\d{4}\s+([\d.]+)/) || [])[1]) || 0);
   const quiet = weeks[0].reg + weeks[0].off + weeks[0].ot === 0 ? weeks[0] : weeks[1];
   quiet.pto += pto; quiet.hours += pto + holiday;
   const gross = parseFloat(((text.match(/Current\s+([\d,]+\.\d{2})/) || [])[1] || "0").replace(/,/g, ""));
-  return { rate, pto, holiday, bonus:0, pay:gross, weeks };
+  return { rate, pto, holiday, pay:gross, weeks };
 }
 function draw(){
   const page = pages.find(p => String(p.page) === document.getElementById("check").value);
@@ -112,7 +114,7 @@ function draw(){
     oldHours += oldWeek; newHours += newWeek;
     const off = w.off || 0, ot = w.ot || 0, total = (w.reg || 0) + off + ot, ratio = total ? off / total : 0;
     const otRate = base + 0.5 * base * (1 + 0.5 * ratio);
-    side += `<p><b>${w.name}, ${cap.name}</b><br>Hours on the check ${num(w.hours)}. Old counts ${num(oldWeek)}. New counts ${num(newWeek)}.<br>PTO ${num(w.pto || 0)}. Regular ${num(w.reg || 0)}. Off-shift ${num(off)} x ${rate2(base * 1.5)}. OT 1.5 ${num(ot)} x ${rate2(otRate)}.</p>`;
+    side += `<p><b>${w.name}, ${cap.name}</b><br>Hours on the check ${num(w.hours)}. Old counts ${num(oldWeek)} of ${cap.old}. New counts ${num(newWeek)} of ${cap.neu}.<br>Regular ${num(w.reg || 0)}. Off-shift ${num(off)} x ${rate2(base * 1.5)}. OT 1.5 ${num(ot)} x ${rate2(otRate)}.</p>`;
   });
   const oldPay = oldHours * base, newPay = newHours * base;
   const eeOld = oldPay * eeRate, eeNew = newPay * eeRate;
@@ -122,7 +124,7 @@ function draw(){
   const line = (name, old, neu, moneyish=true) => `<tr><td>${name}</td><td>${moneyish ? money(old) : num(old)}</td><td>${moneyish ? money(neu) : num(neu)}</td><td class="diff">${moneyish ? money(old - neu) : num(old - neu)}</td></tr>`;
   document.getElementById("out").innerHTML = `<h2>Page ${page.page}: ${page.begin} to ${page.end}</h2><div class="wrap"><table><tr><th></th><th>Old, scheduled cap</th><th>New, 40 / 32 / 0</th><th class="diff">Difference</th></tr>
     ${line("Paycheck", parsed.pay, parsed.pay)} ${line("Hours counted for retirement", oldHours, newHours, false)} ${line("PTO counted", parsed.pto, parsed.pto, false)} ${line("Holiday counted", parsed.holiday, parsed.holiday, false)} ${line("Pay base, straight time", oldPay, newPay)} ${line("Your 401(k)", eeOld, eeNew)} ${line("Employer 401(k)", erOld, erNew)} ${line("Pension credit", oldPay * pep, newPay * pep)} ${line("Taxes saved", taxOld, taxNew)}
-  </table><div class="side"><h2>Both weeks</h2>${side}</div></div>
+  </table><div class="side"><h2>Date order</h2>${side}<p>Old counts overtime that is still inside the scheduled hours. A 72-hour week counts up to 72. New stops at 40.</p></div></div>
   <div class="totals"><h2>Total difference</h2><ul><li>Your 401(k): ${money(eeOld - eeNew)}</li><li>Employer 401(k): ${money(erOld - erNew)}</li><li>Pension: ${money((oldPay - newPay) * pep)}</li><li>Taxes saved: ${money(taxOld - taxNew)}</li></ul><p>Combined: ${money((eeOld - eeNew) + (erOld - erNew) + (oldPay - newPay) * pep + (taxOld - taxNew))}.</p></div>`;
 }
 </script>
