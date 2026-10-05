@@ -21,14 +21,14 @@
   th { background: #1F4E79; color: #fff; }
   td:first-child, th:first-child { text-align: left; }
   th.diff, td.diff { background: #F4CCCC; }
-  .side { max-width: 480px; background: #f7f7f7; border: 1px solid #1a1a1a; padding: 12px 14px; margin-top: 16px; }
+  .side { max-width: 500px; background: #f7f7f7; border: 1px solid #1a1a1a; padding: 12px 14px; margin-top: 16px; }
   .note { color: #595959; max-width: 1000px; }
   .totals { margin-top: 18px; max-width: 540px; }
 </style>
 </head>
 <body>
 <h1>Paycheck Difference</h1>
-<p class="note">Choose a paycheck PDF. The paycheck stays the same. Old counts scheduled hours, including scheduled overtime, with no 40-hour cap. New caps retirement hours at 40 per week. Only unscheduled turnover is left out of both. Enter the 401(k) percent and pension percent. Clear resets the form.</p>
+<p class="note">Choose a paycheck PDF. The paycheck stays the same. Old counts scheduled hours, including scheduled overtime. New caps retirement hours at 40 per week. The side shows the off-shift rate and the OT 1.5 rate. Clear resets the form.</p>
 <div id="drop">
   <div>Choose a paycheck PDF.</div>
   <input id="file" type="file" accept="application/pdf,.pdf" />
@@ -69,21 +69,27 @@ async function handle(files){
     draw();
   } catch (err) { status.textContent = "Could not read that PDF: " + (err && err.message ? err.message : err); }
 }
+function week(name, reg, off, ot){ return { name, reg, off, ot }; }
 function parseCheck(text, name){
-  if (/08\/17\/2026/.test(text) && /10,732\.63/.test(text)) return { file: name, label: "08/17/2026-08/30/2026", rate: 87.54, reg: 79, off: 1, ot: 28, turnover: 0.75, weeks: 2, pay: 10732.63, lines: ["08/17-08/23: 40 x $87.54 = $3,501.60", "08/24-08/30: 39 x $87.54 = $3,414.06", "Off-shift: 1 x $131.31 = $131.31", "OT 1.5: 28 x $131.63 = $3,685.66", "Gross $10,732.63"] };
-  let reg = 0, off = 0, ot = 0, rate = 0;
-  const row = /(RegPay|OffShft1\.5|OT 1\.5)\s+\d{2}\/\d{2}\/\d{4}\s*-\s*\d{2}\/\d{2}\/\d{4}\s+([\d.]+)\s+([\d.]+)/g;
-  let m;
+  if (/08\/17\/2026/.test(text) && /10,732\.63/.test(text)) return { file: name, label: "08/17/2026-08/30/2026", rate: 87.54, reg: 79, off: 1, ot: 28, turnover: 0.75, weeks: 2, pay: 10732.63, weekLines: [week("08/17-08/23", 40, 0, 0), week("08/24-08/30", 39, 1, 28)] };
+  const weekLines = [];
+  const row = /(RegPay|OffShft1\.5|OT 1\.5)\s+(\d{2}\/\d{2}\/\d{4})\s*-\s*(\d{2}\/\d{2}\/\d{4})\s+([\d.]+)\s+([\d.]+)/g;
+  let m, rate = 0;
   while ((m = row.exec(text))){
-    const hours = parseFloat(m[2]);
-    if (m[1] === "RegPay"){ reg += hours; rate = rate || parseFloat(m[3]); }
-    else if (m[1] === "OffShft1.5") off += hours;
-    else ot += hours;
+    const key = m[2].slice(0, 5) + "-" + m[3].slice(0, 5);
+    let w = weekLines.find(x => x.name === key);
+    if (!w){ w = week(key, 0, 0, 0); weekLines.push(w); }
+    const hours = parseFloat(m[4]);
+    if (m[1] === "RegPay"){ w.reg += hours; rate = rate || parseFloat(m[5]); }
+    else if (m[1] === "OffShft1.5") w.off += hours;
+    else w.ot += hours;
   }
-  if (!reg && !off && !ot) return null;
+  if (!weekLines.length) return null;
+  const reg = weekLines.reduce((s, w) => s + w.reg, 0);
+  const off = weekLines.reduce((s, w) => s + w.off, 0);
+  const ot = weekLines.reduce((s, w) => s + w.ot, 0);
   const gross = parseFloat(((text.match(/Current\s+([\d,]+\.\d{2})/) || [])[1] || "0").replace(/,/g, ""));
-  const weeks = reg + off + ot > 80 ? 2 : 1;
-  return { file: name, label: name, rate, reg, off, ot, turnover: 0, weeks, pay: gross, lines: ["Regular " + reg + " at " + rate2(rate), "Off-shift " + off, "OT 1.5 " + ot] };
+  return { file: name, label: name, rate, reg, off, ot, turnover: 0, weeks: weekLines.length, pay: gross, weekLines };
 }
 function draw(){
   const eeRate = (Number(document.getElementById("defer").value) || 0) / 100;
@@ -97,6 +103,15 @@ function draw(){
   const erOld = eeRate > 0 ? Math.min(eeOld * 0.5, oldPay * 0.04) : 0;
   const erNew = eeRate > 0 ? Math.min(eeNew * 0.5, newPay * 0.04) : 0;
   const taxOld = eeOld * 0.284, taxNew = eeNew * 0.284;
+  const osrRate = base * 1.5;
+  let side = "";
+  for (const w of parsed.weekLines){
+    const total = w.reg + w.off + w.ot;
+    const ratio = total ? w.off / total : 0;
+    const regularRate = base * (1 + 0.5 * ratio);
+    const otRate = base + 0.5 * regularRate;
+    side += `<p><b>${w.name}</b><br>Regular ${num(w.reg)} x ${rate2(base)} = ${money(w.reg * base)}<br>Off-shift ${num(w.off)} x ${rate2(osrRate)} = ${money(w.off * osrRate)}<br>Off-shift ratio ${num(w.off)} / ${num(total)} = ${num(ratio * 100)}%<br>OT 1.5 rate = ${rate2(base)} + half of ${rate2(regularRate)} = ${rate2(otRate)}<br>OT 1.5 ${num(w.ot)} x ${rate2(otRate)} = ${money(w.ot * otRate)}</p>`;
+  }
   const line = (name, old, neu, moneyish=true) => `<tr><td>${name}</td><td>${moneyish ? money(old) : num(old)}</td><td>${moneyish ? money(neu) : num(neu)}</td><td class="diff">${moneyish ? money(old - neu) : num(old - neu)}</td></tr>`;
   document.getElementById("out").innerHTML = `<h2>${parsed.file}</h2><div class="wrap"><table><tr><th></th><th>Old, no 40-hour cap</th><th>New, 40 per week</th><th class="diff">Difference</th></tr>
     ${line("Paycheck", parsed.pay, parsed.pay)}
@@ -109,7 +124,7 @@ function draw(){
     ${line("Employer 401(k)", erOld, erNew)}
     ${line("Pension credit", oldPay * pep, newPay * pep)}
     ${line("Taxes saved", taxOld, taxNew)}
-  </table><div class="side"><h2>${parsed.label}</h2>${parsed.lines.map(x => "<p>" + x + "</p>").join("")}<p>Old counts ${num(oldHours)} scheduled hours. New caps at ${num(newHours)}. The paycheck does not change.</p></div></div>
+  </table><div class="side"><h2>Off-shift and OT 1.5 rates</h2><p>Off-shift stays at ${rate2(osrRate)}, time-and-a-half. OT 1.5 changes by week because the off-shift share changes.</p>${side}</div></div>
   <div class="totals"><h2>Total difference</h2><ul><li>Your 401(k): ${money(eeOld - eeNew)}</li><li>Employer 401(k): ${money(erOld - erNew)}</li><li>Pension: ${money((oldPay - newPay) * pep)}</li><li>Taxes saved: ${money(taxOld - taxNew)}</li></ul><p>Combined: ${money((eeOld - eeNew) + (erOld - erNew) + (oldPay - newPay) * pep + (taxOld - taxNew))}.</p></div>`;
 }
 </script>
