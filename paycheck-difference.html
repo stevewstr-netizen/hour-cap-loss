@@ -28,7 +28,7 @@
 </head>
 <body>
 <h1>Paycheck Difference</h1>
-<p class="note">Upload the paycheck PDF. Pick the page, then the two rotation weeks in date order. PTO fills only scheduled hours. Overtime still inside the old schedule counts on the old side. The side shows the OT 1.5 math. Clear resets the form.</p>
+<p class="note">This shows how the new retirement count changes the paycheck. Upload the PDF, pick the page and the two rotation weeks. PTO fills only scheduled hours. The 401(k) stops at that year's limit. Age 50 or over gets the catch-up. Clear resets the form.</p>
 <div id="drop">
   <div>Choose the paycheck PDF.</div>
   <input id="file" type="file" accept="application/pdf,.pdf" />
@@ -38,6 +38,9 @@
   <select id="w1"><option value="">Choose the rotation week</option><option value="1">1: 48 scheduled</option><option value="2">2: 40 scheduled</option><option value="3">3: 72 scheduled</option><option value="4">4: 48 scheduled</option><option value="5">5: off</option><option value="6">6: 32 scheduled</option></select>
   <label>Second week</label>
   <select id="w2"><option value="">Choose the rotation week</option><option value="1">1: 48 scheduled</option><option value="2">2: 40 scheduled</option><option value="3">3: 72 scheduled</option><option value="4">4: 48 scheduled</option><option value="5">5: off</option><option value="6">6: 32 scheduled</option></select>
+  <label>Age at year end</label>
+  <select id="age"><option value="under">Under 50</option><option value="over">50 or over</option></select>
+  <label>401(k) already deferred this year, before this check</label><input id="ytd" type="number" value="" min="0" step="0.01" />
   <label>Your 401(k) percent</label><input id="defer" type="number" value="" min="0" step="0.5" />
   <label>Pension percent</label><input id="pension" type="number" value="" min="0" step="0.5" />
   <button type="button" id="go">Calculate</button>
@@ -48,16 +51,25 @@
 <script>
 if (window.pdfjsLib) pdfjsLib.GlobalWorkerOptions.workerSrc = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
 const caps = { 1:{name:"48 scheduled", scheduled:48, old:48, neu:40}, 2:{name:"40 scheduled", scheduled:40, old:40, neu:40}, 3:{name:"72 scheduled", scheduled:72, old:72, neu:40}, 4:{name:"48 scheduled", scheduled:48, old:48, neu:40}, 5:{name:"off", scheduled:0, old:0, neu:0}, 6:{name:"32 scheduled", scheduled:32, old:32, neu:32} };
+const limits = { 2020:{base:19500, catchup:6500}, 2021:{base:19500, catchup:6500}, 2022:{base:20500, catchup:6500}, 2023:{base:22500, catchup:7500}, 2024:{base:23000, catchup:7500}, 2025:{base:23500, catchup:7500}, 2026:{base:24500, catchup:8000} };
 const status = document.getElementById("status");
 let pages = [];
 document.getElementById("file").addEventListener("change", () => load(document.getElementById("file").files));
 document.getElementById("go").addEventListener("click", draw);
 document.getElementById("check").addEventListener("change", draw);
 document.getElementById("clear").addEventListener("click", reset);
-function reset(){ pages = []; document.getElementById("file").value = ""; document.getElementById("check").innerHTML = "<option value=''>Upload the PDF first</option>"; ["w1","w2","defer","pension"].forEach(id => document.getElementById(id).value = ""); document.getElementById("out").innerHTML = ""; status.textContent = "Cleared. Upload the paycheck PDF."; }
+function reset(){ pages = []; document.getElementById("file").value = ""; document.getElementById("check").innerHTML = "<option value=''>Upload the PDF first</option>"; ["w1","w2","ytd","defer","pension"].forEach(id => document.getElementById(id).value = ""); document.getElementById("age").value = "under"; document.getElementById("out").innerHTML = ""; status.textContent = "Cleared. Upload the paycheck PDF."; }
 function money(n){ return Number(n || 0).toLocaleString("en-US",{style:"currency",currency:"USD"}); }
 function num(n){ return Number(n || 0).toLocaleString("en-US",{maximumFractionDigits:2}); }
 function rate2(n){ return Number(n || 0).toLocaleString("en-US",{style:"currency",currency:"USD",minimumFractionDigits:2,maximumFractionDigits:2}); }
+function capDeferral(amount){
+  const year = Number((pages.find(p => String(p.page) === document.getElementById("check").value).begin || "").slice(-4)) || 2026;
+  const row = limits[year] || limits[2026];
+  const limit = row.base + (document.getElementById("age").value === "over" ? row.catchup : 0);
+  const already = Number(document.getElementById("ytd").value) || 0;
+  const room = Math.max(0, limit - already);
+  return { year, limit, room, amount: Math.min(amount, room) };
+}
 async function load(files){
   try {
     if (!files || !files.length) return;
@@ -121,17 +133,18 @@ function draw(){
     const ratio = total ? off / total : 0;
     const regularRate = base * (1 + 0.5 * ratio);
     const otRate = base + 0.5 * regularRate;
-    side += `<p><b>${w.name}, ${cap.name}</b><br>PTO placed here: ${num(pto)}. Scheduled overtime counted on the old side: ${num(otForOld)}.<br>Old counts ${num(oldWeek)} of ${cap.old}. New counts ${num(newWeek)} of ${cap.neu}.<br>Off-shift ratio = ${num(off)} / ${num(total)}<br>Regular rate = ${rate2(base)} x (1 + 0.5 x ${num(ratio)}) = ${rate2(regularRate)}<br>OT 1.5 rate = ${rate2(base)} + half of ${rate2(regularRate)} = ${rate2(otRate)}<br>OT 1.5 pay = ${num(ot)} x ${rate2(otRate)} = ${money(ot * otRate)}</p>`;
+    side += `<p><b>${w.name}, ${cap.name}</b><br>PTO placed here: ${num(pto)}. Scheduled overtime counted on the old side: ${num(otForOld)}.<br>Old counts ${num(oldWeek)} of ${cap.old}. New counts ${num(newWeek)} of ${cap.neu}.<br>OT 1.5 rate = ${rate2(base)} + half of ${rate2(regularRate)} = ${rate2(otRate)}</p>`;
   });
   const oldPay = oldHours * base, newPay = newHours * base;
-  const eeOld = oldPay * eeRate, eeNew = newPay * eeRate;
-  const erOld = eeRate > 0 ? Math.min(eeOld * 0.5, oldPay * 0.04) : 0;
-  const erNew = eeRate > 0 ? Math.min(eeNew * 0.5, newPay * 0.04) : 0;
+  const oldCap = capDeferral(oldPay * eeRate), newCap = capDeferral(newPay * eeRate);
+  const eeOld = oldCap.amount, eeNew = newCap.amount;
+  const erOld = eeOld > 0 ? Math.min(eeOld * 0.5, oldPay * 0.04) : 0;
+  const erNew = eeNew > 0 ? Math.min(eeNew * 0.5, newPay * 0.04) : 0;
   const taxOld = eeOld * 0.284, taxNew = eeNew * 0.284;
   const line = (name, old, neu, moneyish=true) => `<tr><td>${name}</td><td>${moneyish ? money(old) : num(old)}</td><td>${moneyish ? money(neu) : num(neu)}</td><td class="diff">${moneyish ? money(old - neu) : num(old - neu)}</td></tr>`;
   document.getElementById("out").innerHTML = `<h2>Page ${page.page}: ${page.begin} to ${page.end}</h2><div class="wrap"><table><tr><th></th><th>Old, scheduled cap</th><th>New, 40 / 32 / 0</th><th class="diff">Difference</th></tr>
     ${line("Paycheck", parsed.pay, parsed.pay)} ${line("Hours counted for retirement", oldHours, newHours, false)} ${line("PTO counted", parsed.pto - left, parsed.pto - left, false)} ${line("Holiday counted", parsed.holiday, parsed.holiday, false)} ${line("Pay base, straight time", oldPay, newPay)} ${line("Your 401(k)", eeOld, eeNew)} ${line("Employer 401(k)", erOld, erNew)} ${line("Pension credit", oldPay * pep, newPay * pep)} ${line("Taxes saved", taxOld, taxNew)}
-  </table><div class="side"><h2>PTO split and OT 1.5</h2>${side}</div></div>
+  </table><div class="side"><h2>401(k) limit</h2><p>${oldCap.year}: ${money(oldCap.limit)} ${document.getElementById("age").value === "over" ? "with the age-50 catch-up" : "under 50"}. Room left before this check: ${money(oldCap.room)}.</p><p>2023 $22,500 / $30,000. 2024 $23,000 / $30,500. 2025 $23,500 / $31,000. 2026 $24,500 / $32,500. The second number is age 50 or over.</p><h2>PTO split and OT 1.5</h2>${side}</div></div>
   <div class="totals"><h2>Total difference</h2><ul><li>Your 401(k): ${money(eeOld - eeNew)}</li><li>Employer 401(k): ${money(erOld - erNew)}</li><li>Pension: ${money((oldPay - newPay) * pep)}</li><li>Taxes saved: ${money(taxOld - taxNew)}</li></ul><p>Combined: ${money((eeOld - eeNew) + (erOld - erNew) + (oldPay - newPay) * pep + (taxOld - taxNew))}.</p></div>`;
 }
 </script>
