@@ -133,7 +133,7 @@ function draw(){
     left -= pto;
     const countable = used + pto;
     const otForOld = pto > 0 ? 0 : Math.min(w.ot || 0, Math.max(0, cap.old - countable));
-    const oldWeek = Math.min(countable + otForOld, cap.old), newWeek = Math.min(countable, cap.neu);
+    const oldWeek = countable + otForOld, newWeek = Math.min(countable, cap.neu);
     oldHours += oldWeek; newHours += newWeek;
     const off = w.off || 0, ot = w.ot || 0, reg = w.reg || 0, total = reg + off + ot;
     const ratio = total ? off / total : 0;
