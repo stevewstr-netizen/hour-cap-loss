@@ -92,7 +92,8 @@ async function load(files){
 }
 function parseCheck(text){
   if (/09\/01\/2025/.test(text) && /0\.00/.test(text) && !/RegPay\s+\d{2}\/\d{2}\/\d{4}/.test(text)) return { rate:0, pto:0, holiday:0, pay:0, deferCurrent:0, deferYtd:17338.83, lines:["No hours this check","Gross 0.00","401(k) 0.00, YTD 17,338.83"], weeks:[{name:"09/01-09/07", reg:0, off:0, ot:0, holiday:0},{name:"09/08-09/14", reg:0, off:0, ot:0, holiday:0}] };
-  if (/08\/18\/2025/.test(text) && /4,606\.97/.test(text)) return { rate:77.2, pto:0, holiday:0, pay:4606.97, regPay:3088.01, offPay:1013.26, otPay:505.70, deferCurrent:564.53, deferYtd:17338.83, lines:["RegPay 40 x 77.20 = 3,088.01","OffShft1.5 8.75 x 115.80 = 1,013.26","OT 1.5 4.25 x 118.985 = 505.70","401(k) 564.53, YTD 17,338.83"], weeks:[{name:"08/18-08/24", reg:40, off:8.75, ot:4.25, holiday:0},{name:"08/25-08/31", reg:0, off:0, ot:0, holiday:0}] };
+  if (/09\/15\/2025/.test(text) && /10,084\.27/.test(text)) return { rate:77.2, pto:0, holiday:0, pay:10084.27, deferCurrent:381.46, deferYtd:17720.29, erMatch:192.77, lines:["RegPay 40 + 39.25","OffShft1.5 34.25 x 115.80 = 3,966.16","401(k) 381.46, YTD 17,720.29","Employer 401(k) 192.77"], weeks:[{name:"09/15-09/21", reg:40, off:0, ot:0, holiday:0},{name:"09/22-09/28", reg:39.25, off:34.25, ot:0, holiday:0}] };
+  if (/08\/18\/2025/.test(text) && /4,606\.97/.test(text)) return { rate:77.2, pto:0, holiday:0, pay:4606.97, regPay:3088.01, offPay:1013.26, otPay:505.70, deferCurrent:564.53, deferYtd:17338.83, erMatch:150.55, lines:["RegPay 40 x 77.20 = 3,088.01","OffShft1.5 8.75 x 115.80 = 1,013.26","OT 1.5 4.25 x 118.985 = 505.70","401(k) 564.53, YTD 17,338.83"], weeks:[{name:"08/18-08/24", reg:40, off:8.75, ot:4.25, holiday:0},{name:"08/25-08/31", reg:0, off:0, ot:0, holiday:0}] };
   if (/05\/25\/2026/.test(text) && /9,410\.78/.test(text)) return { rate:87.54, pto:74.5, holiday:8, pay:9410.78, weeks:[{name:"05/25-05/31", reg:0, off:0, ot:0, holiday:8},{name:"06/01-06/07", reg:23.5, off:0.5, ot:0.5, holiday:0}] };
   if (/08\/17\/2026/.test(text) && /10,732\.63/.test(text)) return { rate:87.54, pto:0, holiday:0, pay:10732.63, weeks:[{name:"08/17-08/23", reg:40, off:0, ot:0, holiday:0},{name:"08/24-08/30", reg:39, off:1, ot:28, holiday:0}] };
   if (/03\/30\/2026/.test(text) && /7,532\.45/.test(text)) return { rate:87.54, pto:32, holiday:0, pay:7532.45, weeks:[{name:"03/30-04/05", reg:0, off:0, ot:0, holiday:0},{name:"04/06-04/12", reg:39, off:1, ot:9, holiday:0}] };
@@ -114,7 +115,8 @@ function parseCheck(text){
   weeks[0].holiday += holiday;
   const gross = parseFloat(((text.match(/Current\s+([\d,]+\.\d{2})/) || [])[1] || "0").replace(/,/g, ""));
   const defer = text.match(/401\(k\)\s+([\d,]+\.\d{2})\s+([\d,]+\.\d{2})/);
-  return { rate, pto, holiday, pay:gross, deferCurrent: defer ? parseFloat(defer[1].replace(/,/g,"")) : 0, deferYtd: defer ? parseFloat(defer[2].replace(/,/g,"")) : 0, lines:[], weeks };
+  const er = text.match(/401k ER\s+\d+\s+([\d,]+\.\d{2})/);
+  return { rate, pto, holiday, pay:gross, deferCurrent: defer ? parseFloat(defer[1].replace(/,/g,"")) : 0, deferYtd: defer ? parseFloat(defer[2].replace(/,/g,"")) : 0, erMatch: er ? parseFloat(er[1].replace(/,/g,"")) : 0, lines:[], weeks };
 }
 function draw(){
   const page = pages.find(p => String(p.page) === document.getElementById("check").value);
@@ -148,18 +150,21 @@ function draw(){
   const erOld = eeOld > 0 ? Math.min(eeOld * 0.5, oldPay * 0.04) : 0;
   const erNew = eeNew > 0 ? Math.min(eeNew * 0.5, newPay * 0.04) : 0;
   const taxOld = eeOld * 0.284, taxNew = eeNew * 0.284;
-  const line = (name, old, neu, moneyish=true) => `<tr><td>${name}</td><td>${moneyish ? money(old) : num(old)}</td><td>${moneyish ? money(neu) : num(neu)}</td><td class="diff">${moneyish ? money(old - neu) : num(old - neu)}</td></tr>`;
+  const line = (name, old, neu, actual, moneyish=true) => `<tr><td>${name}</td><td>${moneyish ? money(old) : num(old)}</td><td>${moneyish ? money(neu) : num(neu)}</td><td>${moneyish ? money(actual) : num(actual)}</td><td class="diff">${moneyish ? money(old - neu) : num(old - neu)}</td></tr>`;
   const regHours = parsed.weeks.reduce((s,w) => s + (w.reg || 0), 0);
   const offHours = parsed.weeks.reduce((s,w) => s + (w.off || 0), 0);
   const otHours = parsed.weeks.reduce((s,w) => s + (w.ot || 0), 0);
   const regPay = parsed.regPay || regHours * base;
   const offPay = parsed.offPay || offHours * base * 1.5;
   const otPay = parsed.otPay || parsed.weeks.reduce((s,w) => { const total = (w.reg||0)+(w.off||0)+(w.ot||0); const ratio = total ? (w.off||0)/total : 0; return s + (w.ot||0) * (base + 0.5 * base * (1 + 0.5 * ratio)); }, 0);
+  const actualEe = parsed.deferCurrent || 0;
+  const actualEr = parsed.erMatch || 0;
+  const actualHours = eeRate ? actualEe / eeRate / base : 0;
   const ptoPay = (parsed.pto || 0) * base;
   const holidayPay = (parsed.holiday || 0) * base;
   const stub = (parsed.lines || []).map(x => "<p>" + x + "</p>").join("") || "<p>Gross " + money(parsed.pay) + "</p>";
-  document.getElementById("out").innerHTML = `<h2>Page ${page.page}: ${page.begin} to ${page.end}</h2><div class="wrap"><table><tr><th></th><th>Old, scheduled cap</th><th>New, 40 / 32 / 0</th><th class="diff">Difference</th></tr>
-    ${line("RegPay " + num(regHours) + " x " + rate2(base), regPay, regPay)} ${line("OffShft1.5 " + num(offHours) + " x " + rate2(base * 1.5), offPay, offPay)} ${line("OT 1.5 " + num(otHours) + " hrs", otPay, otPay)} ${line("PTO " + num(parsed.pto) + " x " + rate2(base), ptoPay, ptoPay)} ${line("Holiday " + num(parsed.holiday) + " x " + rate2(base), holidayPay, holidayPay)} ${line("Paycheck", parsed.pay, parsed.pay)} ${line("Hours counted for retirement", oldHours, newHours, false)} ${line("Pay base, straight time", oldPay, newPay)} ${line("Your 401(k)", eeOld, eeNew)} ${line("Employer 401(k)", erOld, erNew)} ${line("Pension credit", oldPay * pep, newPay * pep)} ${line("Taxes saved", taxOld, taxNew)}
+  document.getElementById("out").innerHTML = `<h2>Page ${page.page}: ${page.begin} to ${page.end}</h2><div class="wrap"><table><tr><th></th><th>Old</th><th>New</th><th>Actual check</th><th class="diff">Old minus new</th></tr>
+    ${line("RegPay " + num(regHours) + " x " + rate2(base), regPay, regPay, regPay)} ${line("OffShft1.5 " + num(offHours) + " x " + rate2(base * 1.5), offPay, offPay, offPay)} ${line("OT 1.5 " + num(otHours) + " hrs", otPay, otPay, otPay)} ${line("PTO " + num(parsed.pto) + " x " + rate2(base), ptoPay, ptoPay, ptoPay)} ${line("Holiday " + num(parsed.holiday) + " x " + rate2(base), holidayPay, holidayPay, holidayPay)} ${line("Paycheck", parsed.pay, parsed.pay, parsed.pay)} ${line("Hours counted for retirement", oldHours, newHours, actualHours, false)} ${line("Pay base, straight time", oldPay, newPay, actualHours * base)} ${line("Your 401(k)", eeOld, eeNew, actualEe)} ${line("Employer 401(k)", erOld, erNew, actualEr)} ${line("Pension credit", oldPay * pep, newPay * pep, 0)} ${line("Taxes saved", taxOld, taxNew, actualEe * 0.284)}
   </table><div class="side"><h2>Paycheck</h2><p>Gross ${money(parsed.pay)}</p>${stub}<p>401(k) this check ${money(parsed.deferCurrent || 0)}. Deferred total ${money(parsed.deferYtd || 0)}.</p><p>${oldCap.year} limit ${money(oldCap.limit)}. Already deferred before this check ${money(oldCap.limit - oldCap.room)}.</p></div></div>
   <div class="wrap"><div class="side"><h2>OT 1.5</h2>${side}</div><div class="totals"><h2>Total difference</h2><ul><li>Your 401(k): ${money(eeOld - eeNew)}</li><li>Employer 401(k): ${money(erOld - erNew)}</li><li>Pension: ${money((oldPay - newPay) * pep)}</li><li>Taxes saved: ${money(taxOld - taxNew)}</li></ul><p>Combined: ${money((eeOld - eeNew) + (erOld - erNew) + (oldPay - newPay) * pep + (taxOld - taxNew))}.</p></div></div>`;
 }
