@@ -10,19 +10,18 @@
   h1 { font-size: 22px; }
   #drop { border: 2px dashed #1F4E79; border-radius: 8px; padding: 22px; background: #f4f8fb; max-width: 760px; }
   input[type=file] { display: block; margin-top: 12px; font-size: 16px; }
-  button, a.btn { background: #1F4E79; color: #fff; border: 0; padding: 8px 14px; border-radius: 4px; cursor: pointer; text-decoration: none; display: inline-block; }
   table { border-collapse: collapse; margin-top: 16px; font-size: 13px; }
   th, td { border: 1px solid #1a1a1a; padding: 5px 8px; text-align: right; }
   th { background: #1F4E79; color: #fff; }
   td:first-child, th:first-child { text-align: left; }
   th.diff, td.diff { background: #F4CCCC; color: #1a1a1a; }
   tr.tax td { background: #F4CCCC; border: 2px solid #C00000; }
-  .note { color: #595959; max-width: 760px; }
+  .note { color: #595959; max-width: 780px; }
 </style>
 </head>
 <body>
 <h1>Drop a paycheck</h1>
-<p class="note">Drop a Workday PDF here, or use the file box. The file stays on this computer. Off-shift hours count toward the 401(k) and pension at straight time. The 1.5 pay does not. Overtime is paid and does not count. Hours you did not work do not count. Company 401(k) is half of your deferral, up to 4% of straight-time counted pay. The federal bracket comes from the taxable wages on the check.</p>
+<p class="note">Drop a Workday PDF here, or use the file box. The file stays on this computer. PTO counts toward retirement in both methods and is paid at the regular rate. Holiday is paid at the regular rate and does not count toward retirement. Off-shift hours count at straight time. The 1.5 pay does not. Overtime is paid and does not count in the new method. Company 401(k) is half of your deferral, up to 4% of straight-time counted pay.</p>
 <div id="drop">
   <div>Choose a paycheck PDF, or drop it on this box.</div>
   <input id="file" type="file" accept="application/pdf,.pdf" />
@@ -32,27 +31,25 @@
 <script>
 pdfjsLib.GlobalWorkerOptions.workerSrc = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
 const PEP = 0.10, CO = 0.044;
-const LIMITS = { 2023:{base:22500,catch50:7500,catch60:7500}, 2024:{base:23000,catch50:7500,catch60:7500}, 2025:{base:23500,catch50:7500,catch60:11250}, 2026:{base:24500,catch50:8000,catch60:11250} };
+const LIMITS = { 2023:{base:22500}, 2024:{base:23000}, 2025:{base:23500}, 2026:{base:24500} };
 const BRACKETS = {
   single: [[0.10,12400],[0.12,50400],[0.22,105700],[0.24,201775],[0.32,256225],[0.35,640600],[0.37,Infinity]],
   joint: [[0.10,24800],[0.12,100800],[0.22,211400],[0.24,403550],[0.32,512450],[0.35,768700],[0.37,Infinity]]
 };
 const drop = document.getElementById("drop");
 const fileInput = document.getElementById("file");
-const status = document.getElementById("status");
 fileInput.addEventListener("change", () => handle(fileInput.files));
 drop.addEventListener("dragover", e => e.preventDefault());
 drop.addEventListener("drop", e => { e.preventDefault(); handle(e.dataTransfer.files); });
 function money(n){ return n.toLocaleString("en-US",{style:"currency",currency:"USD"}); }
 function num(n){ return Number(n).toLocaleString("en-US",{maximumFractionDigits:2}); }
 function bracket(statusName, taxable){
-  const rows = BRACKETS[statusName] || BRACKETS.single;
-  for (const [rate, top] of rows) if (taxable <= top) return rate;
+  for (const [rate, top] of (BRACKETS[statusName] || BRACKETS.single)) if (taxable <= top) return rate;
   return 0.37;
 }
 async function handle(files){
-  if (!files || !files.length){ status.textContent = "No file selected."; return; }
-  status.textContent = "Reading " + files[0].name + "...";
+  if (!files || !files.length){ document.getElementById("status").textContent = "No file selected."; return; }
+  document.getElementById("status").textContent = "Reading " + files[0].name + "...";
   let text = "";
   try {
     for (const f of files){
@@ -65,12 +62,12 @@ async function handle(files){
       }
     }
   } catch (err) {
-    status.textContent = "Could not read that PDF: " + err.message;
+    document.getElementById("status").textContent = "Could not read that PDF: " + err.message;
     return;
   }
   const rows = parseStubs(text);
-  if (!rows.length){ status.textContent = "Opened the PDF, but found no RegPay or OT lines."; return; }
-  status.textContent = "Found " + rows.length + " check" + (rows.length === 1 ? "" : "s") + ".";
+  if (!rows.length){ document.getElementById("status").textContent = "Opened the PDF, but found no pay lines."; return; }
+  document.getElementById("status").textContent = "Found " + rows.length + " check" + (rows.length === 1 ? "" : "s") + ".";
   render(rows);
 }
 function parseStubs(text){
@@ -81,30 +78,34 @@ function parseStubs(text){
   for (const chunk of chunks){
     const h = chunk.match(hdr);
     if (!h) continue;
+    const byWeek = [{reg:0,off:0,ot:0,pto:0,hol:0,otPay:0,otHours:0},{reg:0,off:0,ot:0,pto:0,hol:0,otPay:0,otHours:0}];
+    let rate = 0, gross = 0;
     const begin = new Date(h[1]);
-    let reg = 0, off = 0, ot = 0, other = 0, rate = 0, gross = 0;
     let m;
-    while ((m = earn.exec(chunk))){
+    const local = new RegExp(earn.source, "g");
+    while ((m = local.exec(chunk))){
       const code = m[1], start = new Date(m[2]), hours = parseFloat(m[3]), lineRate = parseFloat(m[4]);
       const amt = parseFloat(m[5].replace(/,/g, ""));
+      const week = (start - begin) / 86400000 < 7 ? 0 : 1;
       gross += amt;
-      if (code === "RegPay"){ reg += hours; rate = lineRate; }
-      else if (code === "OffShft1.5") off += hours;
-      else if (code === "OT 1.5" || code === "RegPay1.5") ot += hours;
-      else other += hours;
+      if (code === "RegPay"){ byWeek[week].reg += hours; rate = lineRate; }
+      else if (code === "OffShft1.5") byWeek[week].off += hours;
+      else if (code === "OT 1.5" || code === "RegPay1.5"){ byWeek[week].ot += hours; byWeek[week].otPay += amt; byWeek[week].otHours += hours; }
+      else if (code === "PTO") byWeek[week].pto += hours;
+      else if (code === "Holiday") byWeek[week].hol += hours;
     }
-    if (reg + off + ot + other === 0) continue;
+    const hours = byWeek[0].reg + byWeek[0].off + byWeek[0].ot + byWeek[0].pto + byWeek[0].hol + byWeek[1].reg + byWeek[1].off + byWeek[1].ot + byWeek[1].pto + byWeek[1].hol;
+    if (!hours) continue;
     const ee = chunk.match(/401\(k\)\s+([\d,]+\.\d{2})\s+([\d,]+\.\d{2})/);
     const er = chunk.match(/401k ER\s+\S+\s+([\d,]+\.\d{2})\s+([\d,]+\.\d{2})/);
     const tax = chunk.match(/Federal Withholding - Taxable Wages\s+([\d,]+\.\d{2})\s+([\d,]+\.\d{2})/);
-    const statusName = /Married/i.test(chunk) ? "joint" : "single";
     rows.push({
-      end: h[2], begin, reg, off, ot, other, rate, gross,
+      end: h[2], byWeek, rate, gross,
       ee: ee ? parseFloat(ee[1].replace(/,/g, "")) : 0,
       eeYtd: ee ? parseFloat(ee[2].replace(/,/g, "")) : 0,
       er: er ? parseFloat(er[1].replace(/,/g, "")) : 0,
       taxableYtd: tax ? parseFloat(tax[2].replace(/,/g, "")) : 0,
-      statusName
+      statusName: /Married/i.test(chunk) ? "joint" : "single"
     });
   }
   const seen = new Map();
@@ -113,43 +114,43 @@ function parseStubs(text){
 }
 function render(rows){
   let lostEr = 0, lostEe = 0, extraTax = 0, lostPep = 0;
-  let html = "<table><tr><th>Period end</th><th>Old hours</th><th>New hours</th><th>Your 401k old</th><th>Your 401k new</th><th>Company old</th><th>Company new</th><th>Pension lost</th><th class=\"diff\">Total loss</th></tr>";
+  let html = "<table><tr><th>Period end</th><th>PTO</th><th>Holiday</th><th>Off-shift</th><th>OT</th><th>Week 1 OT rate</th><th>Week 2 OT rate</th><th>Old hours</th><th>New hours</th><th class=\"diff\">Loss</th></tr>";
   const detail = [];
   for (const r of rows){
-    const year = r.end.slice(6);
-    const lim = LIMITS[year] || LIMITS[2026];
-    const annual = lim.base;
-    const prior = Math.max(0, r.eeYtd - r.ee);
-    const room = Math.max(0, annual - prior);
-    const oldHours = r.reg + r.off + r.ot + r.other;
-    const newHours = r.reg + r.off + r.other;
+    const year = Number(r.end.slice(6));
+    const annual = (LIMITS[year] || LIMITS[2026]).base;
+    const room = Math.max(0, annual - Math.max(0, r.eeYtd - r.ee));
+    const sum = (key) => r.byWeek[0][key] + r.byWeek[1][key];
+    const pto = sum("pto"), hol = sum("hol"), off = sum("off"), ot = sum("ot"), reg = sum("reg");
+    const oldHours = reg + off + ot + pto;
+    const newHours = reg + off + pto;
     const oldPay = oldHours * r.rate, newPay = newHours * r.rate;
     const defer = newPay > 0 ? r.ee / newPay : 0;
     const eeNew = Math.min(r.ee, room);
     const eeOld = Math.min(oldPay * defer, room);
     const erNew = Math.min(eeNew * 0.5, newPay * 0.04);
     const erOld = Math.min(eeOld * 0.5, oldPay * 0.04);
-    const pepOld = oldPay * PEP, pepNew = newPay * PEP;
+    const pepDiff = (oldPay - newPay) * PEP;
     const fed = bracket(r.statusName, r.taxableYtd);
-    const taxRate = fed + CO;
-    const taxDiff = (eeOld - eeNew) * taxRate;
-    const loss = (erOld - erNew) + (eeOld - eeNew) + taxDiff + (pepOld - pepNew);
-    lostEr += erOld - erNew; lostEe += eeOld - eeNew; extraTax += taxDiff; lostPep += pepOld - pepNew;
-    detail.push({ r, oldHours, newHours, eeOld, eeNew, erOld, erNew, pepOld, pepNew, taxDiff, loss, fed, defer });
-    html += `<tr><td>${r.end}</td><td>${num(oldHours)}</td><td>${num(newHours)}</td><td>${money(eeOld)}</td><td>${money(eeNew)}</td><td>${money(erOld)}</td><td>${money(erNew)}</td><td>${money(pepOld - pepNew)}</td><td class="diff">${money(loss)}</td></tr>`;
+    const taxDiff = (eeOld - eeNew) * (fed + CO);
+    const loss = (erOld - erNew) + (eeOld - eeNew) + taxDiff + pepDiff;
+    lostEr += erOld - erNew; lostEe += eeOld - eeNew; extraTax += taxDiff; lostPep += pepDiff;
+    const otRate = r.byWeek.map(w => w.otHours ? w.otPay / w.otHours : 0);
+    detail.push({ r, pto, hol, off, ot, oldHours, newHours, eeOld, eeNew, erOld, erNew, pepDiff, taxDiff, loss, fed, defer, otRate });
+    html += `<tr><td>${r.end}</td><td>${num(pto)}</td><td>${num(hol)}</td><td>${num(off)}</td><td>${num(ot)}</td><td>${otRate[0] ? money(otRate[0]) : "-"}</td><td>${otRate[1] ? money(otRate[1]) : "-"}</td><td>${num(oldHours)}</td><td>${num(newHours)}</td><td class="diff">${money(loss)}</td></tr>`;
   }
   html += "</table>";
   html += `<p><b>Total.</b> Lost company 401(k) ${money(lostEr)}. Lost employee 401(k) ${money(lostEe)}. Extra tax ${money(extraTax)}. Lost pension credit ${money(lostPep)}. Combined ${money(lostEr + lostEe + extraTax + lostPep)}.</p>`;
   const last = detail[detail.length - 1];
   html += `<table>
     <tr><th></th><th>Old</th><th>New</th><th class="diff">Difference</th></tr>
-    <tr><td>Hours counted</td><td>${num(last.oldHours)}</td><td>${num(last.newHours)}</td><td class="diff">${num(last.oldHours - last.newHours)}</td></tr>
+    <tr><td>Hours counted, PTO in, holiday out</td><td>${num(last.oldHours)}</td><td>${num(last.newHours)}</td><td class="diff">${num(last.oldHours - last.newHours)}</td></tr>
     <tr><td>Your 401(k)</td><td>${money(last.eeOld)}</td><td>${money(last.eeNew)}</td><td class="diff">${money(last.eeOld - last.eeNew)}</td></tr>
     <tr><td>Company 401(k)</td><td>${money(last.erOld)}</td><td>${money(last.erNew)}</td><td class="diff">${money(last.erOld - last.erNew)}</td></tr>
-    <tr><td>Pension credit</td><td>${money(last.pepOld)}</td><td>${money(last.pepNew)}</td><td class="diff">${money(last.pepOld - last.pepNew)}</td></tr>
+    <tr><td>Pension credit</td><td>${money(last.oldHours * last.r.rate * PEP)}</td><td>${money(last.newHours * last.r.rate * PEP)}</td><td class="diff">${money(last.pepDiff)}</td></tr>
     <tr class="tax"><td>Income tax from the 401(k) difference</td><td>${money(last.eeOld * (last.fed + CO))}</td><td>${money(last.eeNew * (last.fed + CO))}</td><td class="diff">${money(last.taxDiff)}</td></tr>
   </table>
-  <p class="note">Last check ${last.r.end}. Off-shift counted at straight time: ${num(last.r.off)} hours. OT not counted: ${num(last.r.ot)}. Deferral rate from the check: ${num(last.defer * 100)}%. Federal bracket: ${num(last.fed * 100)}%.</p>`;
+  <p class="note">Last check ${last.r.end}. PTO ${num(last.pto)} counts. Holiday ${num(last.hol)} is paid at the regular rate and does not count. Plain time-and-a-half is ${money(last.r.rate * 1.5)}. Week OT rates differ because each week blends the off-shift premium into the overtime rate.</p>`;
   document.getElementById("out").innerHTML = html;
 }
 </script>
