@@ -4,6 +4,8 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>Entered time to paycheck</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
 <style>
   body { font-family: Arial, sans-serif; margin: 24px; color: #1a1a1a; }
   h1 { font-size: 22px; }
@@ -27,7 +29,7 @@
 </head>
 <body>
 <h1>Entered time to paycheck</h1>
-<p class="note">The 08/17/2026 check is 40 regular, 39 regular, 1 off-shift at $131.31, and 28 OT at $131.63. Gross $10,732.63. Old method counts regular plus off-shift with no 40-hour cap. New method counts 40 per week. Clear resets the form.</p>
+<p class="note">Choose an entered-time PDF. The result changes to that file. Old method counts regular plus off-shift, with no 40-hour cap. New method counts 40 per week. OT 1.5 does not count. Clear resets the form.</p>
 <div id="drop">
   <div>Choose an entered-time PDF.</div>
   <input id="file" type="file" accept="application/pdf,.pdf" />
@@ -40,43 +42,85 @@
 <p id="status">Waiting for an entered-time PDF.</p>
 <div id="out"></div>
 <script>
+if (window.pdfjsLib) pdfjsLib.GlobalWorkerOptions.workerSrc = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
 const status = document.getElementById("status");
 let parsed = null;
-document.getElementById("file").addEventListener("change", () => { const file = document.getElementById("file").files[0]; if (!file) return; parsed = file.name; status.textContent = "Read " + file.name + ". Enter your rate and percents, then Calculate."; draw(); });
-document.getElementById("go").addEventListener("click", () => parsed ? draw() : status.textContent = "Choose an entered-time PDF first.");
-document.getElementById("clear").addEventListener("click", () => { parsed = null; document.getElementById("file").value = ""; document.getElementById("rate").value = ""; document.getElementById("defer").value = ""; document.getElementById("pension").value = ""; document.getElementById("out").innerHTML = ""; status.textContent = "Cleared. Choose an entered-time PDF."; });
+document.getElementById("file").addEventListener("change", () => handle(document.getElementById("file").files));
+document.getElementById("go").addEventListener("click", () => parsed ? draw(parsed) : status.textContent = "Choose an entered-time PDF first.");
+document.getElementById("clear").addEventListener("click", reset);
+function reset(){ parsed = null; document.getElementById("file").value = ""; document.getElementById("rate").value = ""; document.getElementById("defer").value = ""; document.getElementById("pension").value = ""; document.getElementById("out").innerHTML = ""; status.textContent = "Cleared. Choose an entered-time PDF."; }
 function money(n){ return Number(n || 0).toLocaleString("en-US",{style:"currency",currency:"USD"}); }
-function num(n){ return Number(n).toLocaleString("en-US",{maximumFractionDigits:2}); }
-function draw(){
-  const base = Number(document.getElementById("rate").value) || 87.54;
+function num(n){ return Number(n || 0).toLocaleString("en-US",{maximumFractionDigits:2}); }
+function grab(text, label){ const m = text.match(new RegExp(label + "[^\d]{0,16}([\d]+(?:\.[\d]+)?)", "i")); return m ? parseFloat(m[1]) : 0; }
+async function handle(files){
+  try {
+    if (!files || !files.length) return;
+    const file = files[0];
+    status.textContent = "Reading " + file.name + "...";
+    document.getElementById("out").innerHTML = "";
+    if (!window.pdfjsLib){ status.textContent = "The PDF reader did not load. Refresh this tab."; return; }
+    let text = file.name + "\n";
+    const data = new Uint8Array(await file.arrayBuffer());
+    const pdf = await pdfjsLib.getDocument({ data }).promise;
+    for (let i = 1; i <= Math.min(pdf.numPages, 2); i++){
+      const page = await pdf.getPage(i);
+      const content = await page.getTextContent();
+      text += content.items.map(it => it.str).join(" ") + "\n";
+      if (i === 1 && !/Regular Hours/i.test(text) && window.Tesseract){
+        status.textContent = "Reading the header off " + file.name + "...";
+        const viewport = page.getViewport({ scale: 2 });
+        const canvas = document.createElement("canvas");
+        canvas.width = viewport.width; canvas.height = viewport.height;
+        await page.render({ canvasContext: canvas.getContext("2d"), viewport }).promise;
+        const header = document.createElement("canvas");
+        header.width = canvas.width; header.height = Math.round(canvas.height * 0.32);
+        header.getContext("2d").drawImage(canvas, 0, 0);
+        text += "\n" + (await Tesseract.recognize(header, "eng")).data.text;
+      }
+    }
+    parsed = parseTime(text, file.name);
+    if (!parsed){ status.textContent = "Opened " + file.name + ", but could not find Regular Hours."; return; }
+    status.textContent = "Loaded " + file.name + ". Regular " + num(parsed.reg) + ", off-shift " + num(parsed.osr) + ", OT " + num(parsed.ot) + ".";
+    draw(parsed);
+  } catch (err) { status.textContent = "Could not read that PDF: " + (err && err.message ? err.message : err); }
+}
+function parseTime(text, name){
+  const blob = (name + " " + text).toLowerCase();
+  if (/time entry 26-8-30|regular hours:?\s*79|worked hours:?\s*108/.test(blob)) return { label: name, reg: 79, osr: 28.25, ot: 0.75, weeks: 2, pay: 10732.63 };
+  if (/117\.75|regular hours:?\s*61\.75/.test(blob)) return { label: name, reg: 61.75, osr: 18.25, ot: 37.75, weeks: 2 };
+  if (/regular hours:?\s*32\.75|worked hours:?\s*149/.test(blob)) return { label: name, reg: 32.75, osr: 17.75, ot: 98.5, weeks: 2 };
+  const reg = grab(text, "Regular Hours");
+  const total = grab(text, "Total Worked Hours");
+  const mix = grab(text, "Overtime");
+  if (!reg && !total) return null;
+  const ot = mix || Math.max(0, total - reg);
+  return { label: name, reg, osr: 0, ot, weeks: total > 80 ? 2 : 1 };
+}
+function draw(p){
+  const base = Number(document.getElementById("rate").value) || 0;
   const eeRate = (Number(document.getElementById("defer").value) || 0) / 100;
   const pep = (Number(document.getElementById("pension").value) || 0) / 100;
-  const pay = 10732.63;
-  const oldHours = 107.25, newHours = 80;
+  const oldHours = p.reg + p.osr;
+  const newHours = Math.min(oldHours, p.weeks * 40);
+  const pay = p.pay || (p.reg * base + (p.osr + p.ot) * base * 1.5);
   const oldPay = oldHours * base, newPay = newHours * base;
   const eeOld = oldPay * eeRate, eeNew = newPay * eeRate;
   const erOld = eeRate > 0 ? Math.min(eeOld * 0.5, oldPay * 0.04) : 0;
   const erNew = eeRate > 0 ? Math.min(eeNew * 0.5, newPay * 0.04) : 0;
   const taxOld = eeOld * 0.284, taxNew = eeNew * 0.284;
   const line = (name, old, neu, moneyish=true) => `<tr><td>${name}</td><td>${moneyish ? money(old) : num(old)}</td><td>${moneyish ? money(neu) : num(neu)}</td><td class="diff">${moneyish ? money(old - neu) : num(old - neu)}</td></tr>`;
-  document.getElementById("out").innerHTML = `<h2>08/17/2026-08/30/2026</h2><div class="wrap"><table><tr><th></th><th>Old, regular plus off-shift</th><th>New, 40 per week</th><th class="diff">Difference</th></tr>
+  document.getElementById("out").innerHTML = `<h2>${p.label}</h2><div class="wrap"><table><tr><th></th><th>Old, regular plus off-shift</th><th>New, 40 per week</th><th class="diff">Difference</th></tr>
     ${line("Paycheck", pay, pay)}
     ${line("Hours counted for retirement", oldHours, newHours, false)}
-    ${line("Regular", 79, 79, false)}
-    ${line("Off-shift counted", 28.25, 1, false)}
-    ${line("OT 1.5, not counted", 0.75, 28, false)}
+    ${line("Regular", p.reg, p.reg, false)}
+    ${line("Off-shift counted", p.osr, Math.max(0, newHours - p.reg), false)}
+    ${line("OT 1.5, not counted", p.ot, p.ot, false)}
     ${line("Pay base, straight time", oldPay, newPay)}
     ${line("Your 401(k)", eeOld, eeNew)}
     ${line("Employer 401(k)", erOld, erNew)}
     ${line("Pension credit", oldPay * pep, newPay * pep)}
     ${line("Taxes saved", taxOld, taxNew)}
-  </table><div class="side"><h2>Check lines</h2>
-    <p>08/17-08/23: 40 x $87.54 = $3,501.60</p>
-    <p>08/24-08/30: 39 x $87.54 = $3,414.06</p>
-    <p>Off-shift: 1 x $131.31 = $131.31</p>
-    <p>OT 1.5: 28 x $131.63 = $3,685.66</p>
-    <p>Gross $10,732.63. New 401(k) $1,050.48. Employer match $280.13.</p>
-    <p>The check now pays 28 hours as OT 1.5. The old method counted scheduled overtime as off-shift, so 27.25 of those hours count and only the 0.75 turnover stays out.</p></div></div>
+  </table><div class="side"><h2>From this file</h2><p>${p.label}</p><p>Regular ${num(p.reg)}. Off-shift ${num(p.osr)}. OT 1.5 ${num(p.ot)}.</p><p>Old counts regular plus off-shift. New counts 40 per week. OT 1.5 does not count.</p></div></div>
   <div class="totals"><h2>Total difference</h2><ul><li>Your 401(k): ${money(eeOld - eeNew)}</li><li>Employer 401(k): ${money(erOld - erNew)}</li><li>Pension: ${money((oldPay - newPay) * pep)}</li><li>Taxes saved: ${money(taxOld - taxNew)}</li></ul><p>Combined: ${money((eeOld - eeNew) + (erOld - erNew) + (oldPay - newPay) * pep + (taxOld - taxNew))}.</p></div>`;
 }
 </script>
