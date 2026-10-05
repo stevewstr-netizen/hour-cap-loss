@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>Paycheck Difference</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
 <style>
   body { font-family: Arial, sans-serif; margin: 24px; color: #1a1a1a; }
   h1 { font-size: 22px; }
@@ -28,10 +29,10 @@
 </head>
 <body>
 <h1>Paycheck Difference</h1>
-<p class="note">Choose a paycheck PDF, then pick the two rotation weeks. PTO and holiday count. Bonus does not. Each week is capped on its own. Old uses the scheduled hours. New caps at 40, at 32 on week 6, and at 0 on the off week. Clear resets the form.</p>
+<p class="note">Choose a paycheck PDF or a Snipping Tool image. Then pick the two rotation weeks. PTO and holiday count. Bonus does not. Each week is capped on its own. Clear resets the form.</p>
 <div id="drop">
-  <div>Choose a paycheck PDF.</div>
-  <input id="file" type="file" accept="application/pdf,.pdf" />
+  <div>Choose a paycheck PDF or a snip image.</div>
+  <input id="file" type="file" accept="application/pdf,.pdf,image/png,image/jpeg,.png,.jpg,.jpeg" />
   <label>First week</label>
   <select id="w1"><option value="">Choose the rotation week</option><option value="1">1: 48 scheduled</option><option value="2">2: 40 scheduled</option><option value="3">3: 72 scheduled</option><option value="4">4: 48 scheduled</option><option value="5">5: off</option><option value="6">6: 32 scheduled</option></select>
   <label>Second week</label>
@@ -41,7 +42,7 @@
   <button type="button" id="go">Calculate</button>
   <button type="button" id="clear">Clear</button>
 </div>
-<p id="status">Waiting for a paycheck PDF.</p>
+<p id="status">Waiting for a paycheck PDF or snip.</p>
 <div id="out"></div>
 <script>
 if (window.pdfjsLib) pdfjsLib.GlobalWorkerOptions.workerSrc = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
@@ -49,10 +50,10 @@ const caps = { 1:{name:"48 scheduled", old:48, neu:40}, 2:{name:"40 scheduled", 
 const status = document.getElementById("status");
 let parsed = null;
 document.getElementById("file").addEventListener("change", () => handle(document.getElementById("file").files));
-document.getElementById("go").addEventListener("click", () => parsed ? draw() : status.textContent = "Choose a paycheck PDF first.");
+document.getElementById("go").addEventListener("click", () => parsed ? draw() : status.textContent = "Choose a paycheck PDF or snip first.");
 ["w1","w2"].forEach(id => document.getElementById(id).addEventListener("change", () => parsed && draw()));
 document.getElementById("clear").addEventListener("click", reset);
-function reset(){ parsed = null; document.getElementById("file").value = ""; document.getElementById("w1").value = ""; document.getElementById("w2").value = ""; document.getElementById("defer").value = ""; document.getElementById("pension").value = ""; document.getElementById("out").innerHTML = ""; status.textContent = "Cleared. Choose a paycheck PDF."; }
+function reset(){ parsed = null; document.getElementById("file").value = ""; document.getElementById("w1").value = ""; document.getElementById("w2").value = ""; document.getElementById("defer").value = ""; document.getElementById("pension").value = ""; document.getElementById("out").innerHTML = ""; status.textContent = "Cleared. Choose a paycheck PDF or snip."; }
 function money(n){ return Number(n || 0).toLocaleString("en-US",{style:"currency",currency:"USD"}); }
 function num(n){ return Number(n || 0).toLocaleString("en-US",{maximumFractionDigits:2}); }
 function rate2(n){ return Number(n || 0).toLocaleString("en-US",{style:"currency",currency:"USD",minimumFractionDigits:2,maximumFractionDigits:2}); }
@@ -61,15 +62,30 @@ async function handle(files){
     if (!files || !files.length) return;
     const file = files[0];
     status.textContent = "Reading " + file.name + "...";
-    if (!window.pdfjsLib){ status.textContent = "The PDF reader did not load. Refresh this tab."; return; }
     let text = "";
-    const pdf = await pdfjsLib.getDocument({ data: new Uint8Array(await file.arrayBuffer()) }).promise;
-    for (let i = 1; i <= pdf.numPages; i++) text += (await (await pdf.getPage(i)).getTextContent()).items.map(it => it.str).join(" ") + "\n";
+    if (/image|png|jpe?g/i.test(file.type + file.name)){
+      if (!window.Tesseract){ status.textContent = "The image reader did not load. Refresh this tab."; return; }
+      status.textContent = "Reading the snip...";
+      text = (await Tesseract.recognize(file, "eng")).data.text;
+    } else {
+      if (!window.pdfjsLib){ status.textContent = "The PDF reader did not load. Refresh this tab."; return; }
+      const pdf = await pdfjsLib.getDocument({ data: new Uint8Array(await file.arrayBuffer()) }).promise;
+      for (let i = 1; i <= pdf.numPages; i++) text += (await (await pdf.getPage(i)).getTextContent()).items.map(it => it.str).join(" ") + "\n";
+      if (!/RegPay|OffShft|Holiday/i.test(text) && window.Tesseract){
+        status.textContent = "Reading the picture PDF...";
+        const page = await pdf.getPage(1);
+        const viewport = page.getViewport({ scale: 2 });
+        const canvas = document.createElement("canvas");
+        canvas.width = viewport.width; canvas.height = viewport.height;
+        await page.render({ canvasContext: canvas.getContext("2d"), viewport }).promise;
+        text += "\n" + (await Tesseract.recognize(canvas, "eng")).data.text;
+      }
+    }
     parsed = parseCheck(text, file.name);
     if (!parsed){ status.textContent = "Opened " + file.name + ", but could not find the earnings lines."; return; }
     status.textContent = "Loaded " + file.name + ". Pick the two rotation weeks.";
     draw();
-  } catch (err) { status.textContent = "Could not read that PDF: " + (err && err.message ? err.message : err); }
+  } catch (err) { status.textContent = "Could not read that file: " + (err && err.message ? err.message : err); }
 }
 function parseCheck(text, name){
   if (/01\/19\/2026/.test(text) && /10,449\.52/.test(text)) return { file:name, rate:85.23, pto:0, holiday:8, bonus:0, pay:10449.52, weeks:[{name:"01/19-01/25", hours:40},{name:"01/26-02/01", hours:68, reg:39, off:1, ot:28}] };
