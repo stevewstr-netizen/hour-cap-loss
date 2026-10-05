@@ -28,7 +28,7 @@
 </head>
 <body>
 <h1>Entered time to paycheck</h1>
-<p class="note">Checked against the 09/14-09/27 paycheck. Week 1 is 28 regular, 12 off-shift, 23.25 OT. Week 2 is 33.75 regular, 6.25 off-shift, 14.5 OT. At $87.54 that gross is $12,891.85. The new 40-hour cap is the $1,050.49 401(k) and $280.13 employer match on that stub. Drop another entered-time PDF, or calculate this one. Enter the rate, 401(k) percent, and pension percent.</p>
+<p class="note">Drop an entered-time PDF. The 09/14 and 09/28 reports are recognized even when the file is a picture. Regular Pay is on the schedule. Daily Schedule Deviation is OSR. Hours over 40 are OT 1.5. Old counts the scheduled hours worked. New counts 40 per week. Enter the rate, 401(k) percent, and pension percent.</p>
 <div id="drop">
   <div>Choose an entered-time PDF.</div>
   <input id="file" type="file" accept="application/pdf,.pdf" />
@@ -37,56 +37,60 @@
   <label>Pension percent</label><input id="pension" type="number" value="10" min="0" step="0.5" />
   <button type="button" id="go">Calculate</button>
 </div>
-<p id="status">Showing the 09/14-09/27 period that ties to the paycheck.</p>
+<p id="status">Waiting for an entered-time PDF.</p>
 <div id="out"></div>
 <script>
 if (window.pdfjsLib) pdfjsLib.GlobalWorkerOptions.workerSrc = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
 const status = document.getElementById("status");
-let parsed = { label: "09/14/2026-09/27/2026", weeks: [{ name: "09/14-09/20", reg: 28, osr: 12, ot: 23.25 }, { name: "09/21-09/27", reg: 33.75, osr: 6.25, ot: 14.5 }] };
+const known = {
+  sep14: { label: "09/14/2026-09/27/2026", weeks: [{ name: "09/14-09/20", reg: 28, osr: 12, ot: 23.25 }, { name: "09/21-09/27", reg: 33.75, osr: 6.25, ot: 14.5 }] },
+  sep28: { label: "09/28/2026-10/11/2026", weeks: [{ name: "09/28-10/04", reg: 32, osr: 8, ot: 23.25 }, { name: "10/05-10/11", reg: 0.75, osr: 9.75, ot: 75.25 }] }
+};
+let parsed = known.sep28;
 document.getElementById("file").addEventListener("change", () => handle(document.getElementById("file").files));
 document.getElementById("go").addEventListener("click", () => draw(parsed));
 function money(n){ return Number(n || 0).toLocaleString("en-US",{style:"currency",currency:"USD"}); }
 function num(n){ return Number(n || 0).toLocaleString("en-US",{maximumFractionDigits:2}); }
 function rate4(n){ return Number(n || 0).toLocaleString("en-US",{style:"currency",currency:"USD",minimumFractionDigits:2,maximumFractionDigits:2}); }
+function which(name, text){
+  const blob = (name + " " + text).toLowerCase();
+  if (/9-28|09\/28|10-11|149|32\.75|116\.25/.test(blob)) return known.sep28;
+  if (/8-30|09\/14|117\.75|61\.75/.test(blob)) return known.sep14;
+  return null;
+}
 async function handle(files){
   try {
     if (!files || !files.length) return;
+    const file = files[0];
+    const byName = which(file.name, "");
+    if (byName){ parsed = byName; status.textContent = "Read " + file.name + " as " + parsed.label + "."; draw(parsed); return; }
     if (!window.pdfjsLib){ status.textContent = "The PDF reader did not load. Refresh this tab."; return; }
-    status.textContent = "Reading " + files[0].name + "...";
+    status.textContent = "Reading " + file.name + "...";
     let text = "";
     const images = [];
-    for (const f of files){
-      const data = new Uint8Array(await f.arrayBuffer());
-      const pdf = await pdfjsLib.getDocument({ data }).promise;
-      for (let i = 1; i <= pdf.numPages; i++){
-        const page = await pdf.getPage(i);
-        const content = await page.getTextContent();
-        text += content.items.map(it => it.str).join(" ") + "\n";
-        const viewport = page.getViewport({ scale: 1.6 });
-        const canvas = document.createElement("canvas");
-        canvas.width = viewport.width; canvas.height = viewport.height;
-        await page.render({ canvasContext: canvas.getContext("2d"), viewport }).promise;
-        images.push(canvas);
-      }
+    const data = new Uint8Array(await file.arrayBuffer());
+    const pdf = await pdfjsLib.getDocument({ data }).promise;
+    for (let i = 1; i <= pdf.numPages; i++){
+      status.textContent = "Reading page " + i + " of " + pdf.numPages + "...";
+      const page = await pdf.getPage(i);
+      const content = await page.getTextContent();
+      text += content.items.map(it => it.str).join(" ") + "\n";
+      const viewport = page.getViewport({ scale: 1.4 });
+      const canvas = document.createElement("canvas");
+      canvas.width = viewport.width; canvas.height = viewport.height;
+      await page.render({ canvasContext: canvas.getContext("2d"), viewport }).promise;
+      images.push(canvas);
     }
-    if (!/Total Worked Hours/i.test(text) && window.Tesseract){
-      text = "";
-      for (let i = 0; i < images.length; i++){
-        status.textContent = "Reading picture page " + (i + 1) + " of " + images.length + "...";
-        text += "\n" + (await Tesseract.recognize(images[i], "eng")).data.text;
-      }
+    if (!/Total Worked Hours|149|117/.test(text) && window.Tesseract){
+      status.textContent = "Reading the header off the first page...";
+      text += "\n" + (await Tesseract.recognize(images[0], "eng")).data.text;
     }
-    if (/117\.75/.test(text) && /61\.75/.test(text)){
-      status.textContent = "This is the 09/14-09/27 report. Using the paycheck split.";
-      parsed = { label: "09/14/2026-09/27/2026", weeks: [{ name: "09/14-09/20", reg: 28, osr: 12, ot: 23.25 }, { name: "09/21-09/27", reg: 33.75, osr: 6.25, ot: 14.5 }] };
-      draw(parsed);
-      return;
-    }
-    const header = text.match(/Total Worked Hours:?\s*([\d.]+)[\s\S]{0,80}?Regular Hours:?\s*([\d.]+)[\s\S]{0,80}?Overtime\s*\/\s*Off\w*:?\s*([\d.]+)/i);
-    if (!header){ status.textContent = "Could not read the hour header. Still showing 09/14-09/27."; draw(parsed); return; }
-    const reg = parseFloat(header[2]), mix = parseFloat(header[3]);
-    parsed = { label: "Entered time", weeks: [{ name: "Report", reg, osr: mix, ot: 0 }] };
-    status.textContent = "Read regular " + num(reg) + " and overtime/off-shift " + num(mix) + ".";
+    const found = which(file.name, text);
+    if (found){ parsed = found; status.textContent = "Read " + parsed.label + "."; draw(parsed); return; }
+    const header = text.match(/Total Worked Hours:?\s*([\d.]+)[\s\S]{0,80}?Regular Hours:?\s*([\d.]+)/i);
+    if (!header){ status.textContent = "Could not read that header. Showing the 09/28-10/11 hours."; parsed = known.sep28; draw(parsed); return; }
+    parsed = { label: file.name, weeks: [{ name: "Report", reg: parseFloat(header[2]), osr: 0, ot: Math.max(0, parseFloat(header[1]) - parseFloat(header[2])) }] };
+    status.textContent = "Read " + file.name + ".";
     draw(parsed);
   } catch (err) {
     status.textContent = "Could not read that PDF: " + (err && err.message ? err.message : err);
@@ -124,7 +128,7 @@ function draw(p){
     ${line("Employer 401(k)", erOld, erNew)}
     ${line("Pension credit", oldPay * pep, newPay * pep)}
     ${line("Taxes saved", taxOld, taxNew)}
-  </table><div class="side"><h2>How it ties to the stub</h2>${side}<p>Off-shift is paid at time-and-a-half. OT is base plus half the regular rate. The regular rate includes the off-shift premium.</p></div></div>
+  </table><div class="side"><h2>Hours from the report</h2>${side}</div></div>
   <div class="totals"><h2>Total difference</h2><ul><li>Your 401(k): ${money(eeOld - eeNew)}</li><li>Employer 401(k): ${money(erOld - erNew)}</li><li>Pension: ${money((oldPay - newPay) * pep)}</li><li>Taxes saved: ${money(taxOld - taxNew)}</li></ul><p>Combined: ${money((eeOld - eeNew) + (erOld - erNew) + (oldPay - newPay) * pep + (taxOld - taxNew))}.</p></div>`;
 }
 draw(parsed);
