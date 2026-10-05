@@ -12,6 +12,7 @@
   #drop { border: 2px dashed #1F4E79; border-radius: 8px; padding: 22px; background: #f4f8fb; max-width: 1040px; }
   #paste { margin-top: 12px; min-height: 72px; border: 1px solid #1F4E79; background: #fff; padding: 12px; }
   #paste:focus { outline: 2px solid #1F4E79; }
+  #paste img { max-width: 100%; }
   input[type=file] { display: block; margin-top: 12px; font-size: 16px; }
   label { display: block; margin-top: 10px; font-weight: bold; }
   select, input[type=number] { font-size: 16px; padding: 4px; width: 240px; }
@@ -31,9 +32,9 @@
 </head>
 <body>
 <h1>Paycheck Difference</h1>
-<p class="note">Click the box and paste a snip with Ctrl+V, or choose a paycheck PDF. Then pick the two rotation weeks. PTO and holiday count. Bonus does not. Clear resets the form.</p>
+<p class="note">Click the box and paste a snip, then click Calculate. A PDF can be chosen instead. Pick the two rotation weeks. PTO and holiday count. Bonus does not. Clear resets the form.</p>
 <div id="drop">
-  <div id="paste" tabindex="0">Click here and paste the snip.</div>
+  <div id="paste" tabindex="0">Click here and paste the snip, then click Calculate.</div>
   <input id="file" type="file" accept="application/pdf,.pdf,image/png,image/jpeg,.png,.jpg,.jpeg" />
   <label>First week</label>
   <select id="w1"><option value="">Choose the rotation week</option><option value="1">1: 48 scheduled</option><option value="2">2: 40 scheduled</option><option value="3">3: 72 scheduled</option><option value="4">4: 48 scheduled</option><option value="5">5: off</option><option value="6">6: 32 scheduled</option></select>
@@ -51,56 +52,48 @@ if (window.pdfjsLib) pdfjsLib.GlobalWorkerOptions.workerSrc = "https://cdnjs.clo
 const caps = { 1:{name:"48 scheduled", old:48, neu:40}, 2:{name:"40 scheduled", old:40, neu:40}, 3:{name:"72 scheduled", old:72, neu:40}, 4:{name:"48 scheduled", old:48, neu:40}, 5:{name:"off", old:0, neu:0}, 6:{name:"32 scheduled", old:32, neu:32} };
 const status = document.getElementById("status");
 const pasteBox = document.getElementById("paste");
-let parsed = null;
+let parsed = null, pasted = null;
 pasteBox.addEventListener("paste", event => {
   const items = event.clipboardData && event.clipboardData.items;
   if (!items) return;
   for (const item of items){
     if (item.type.startsWith("image/")){
       event.preventDefault();
-      readImage(item.getAsFile());
+      pasted = item.getAsFile();
+      pasteBox.innerHTML = "";
+      const img = document.createElement("img");
+      img.src = URL.createObjectURL(pasted);
+      pasteBox.appendChild(img);
+      status.textContent = "Snip pasted. Click Calculate.";
       return;
     }
   }
   status.textContent = "The paste did not contain an image. Copy the snip, click the box, then press Ctrl+V.";
 });
-document.getElementById("file").addEventListener("change", () => handle(document.getElementById("file").files));
-document.getElementById("go").addEventListener("click", () => parsed ? draw() : status.textContent = "Paste a snip or choose a file first.");
+document.getElementById("file").addEventListener("change", () => { pasted = document.getElementById("file").files[0] || null; status.textContent = pasted ? "File chosen. Click Calculate." : "Choose a file."; });
+document.getElementById("go").addEventListener("click", submit);
 ["w1","w2"].forEach(id => document.getElementById(id).addEventListener("change", () => parsed && draw()));
 document.getElementById("clear").addEventListener("click", reset);
-function reset(){ parsed = null; document.getElementById("file").value = ""; document.getElementById("w1").value = ""; document.getElementById("w2").value = ""; document.getElementById("defer").value = ""; document.getElementById("pension").value = ""; document.getElementById("out").innerHTML = ""; pasteBox.textContent = "Click here and paste the snip."; status.textContent = "Cleared. Paste a snip or choose a file."; }
+function reset(){ parsed = null; pasted = null; document.getElementById("file").value = ""; document.getElementById("w1").value = ""; document.getElementById("w2").value = ""; document.getElementById("defer").value = ""; document.getElementById("pension").value = ""; document.getElementById("out").innerHTML = ""; pasteBox.textContent = "Click here and paste the snip, then click Calculate."; status.textContent = "Cleared. Paste a snip or choose a file."; }
 function money(n){ return Number(n || 0).toLocaleString("en-US",{style:"currency",currency:"USD"}); }
 function num(n){ return Number(n || 0).toLocaleString("en-US",{maximumFractionDigits:2}); }
 function rate2(n){ return Number(n || 0).toLocaleString("en-US",{style:"currency",currency:"USD",minimumFractionDigits:2,maximumFractionDigits:2}); }
-async function readImage(file){
+async function submit(){
   try {
-    if (!window.Tesseract){ status.textContent = "The image reader did not load. Refresh this tab."; return; }
-    pasteBox.innerHTML = "";
-    const img = document.createElement("img");
-    img.src = URL.createObjectURL(file);
-    img.style.maxWidth = "100%";
-    pasteBox.appendChild(img);
-    status.textContent = "Reading the pasted snip...";
-    const text = (await Tesseract.recognize(file, "eng")).data.text;
-    parsed = parseCheck(text, "Pasted snip");
-    if (!parsed){ status.textContent = "The snip was pasted, but the earnings lines could not be read."; return; }
-    status.textContent = "Loaded the pasted snip. Pick the two rotation weeks.";
-    draw();
-  } catch (err) { status.textContent = "Could not read that snip: " + (err && err.message ? err.message : err); }
-}
-async function handle(files){
-  try {
-    if (!files || !files.length) return;
-    const file = files[0];
-    if (/image|png|jpe?g/i.test(file.type + file.name)) return readImage(file);
-    status.textContent = "Reading " + file.name + "...";
-    if (!window.pdfjsLib){ status.textContent = "The PDF reader did not load. Refresh this tab."; return; }
+    if (!pasted){ status.textContent = "Paste a snip or choose a file, then click Calculate."; return; }
+    status.textContent = "Reading the paycheck...";
     let text = "";
-    const pdf = await pdfjsLib.getDocument({ data: new Uint8Array(await file.arrayBuffer()) }).promise;
-    for (let i = 1; i <= pdf.numPages; i++) text += (await (await pdf.getPage(i)).getTextContent()).items.map(it => it.str).join(" ") + "\n";
-    parsed = parseCheck(text, file.name);
-    if (!parsed){ status.textContent = "Opened " + file.name + ", but could not find the earnings lines."; return; }
-    status.textContent = "Loaded " + file.name + ". Pick the two rotation weeks.";
+    if (/image|png|jpe?g/i.test(pasted.type + pasted.name)){
+      if (!window.Tesseract){ status.textContent = "The image reader did not load. Refresh this tab."; return; }
+      text = (await Tesseract.recognize(pasted, "eng")).data.text;
+    } else {
+      if (!window.pdfjsLib){ status.textContent = "The PDF reader did not load. Refresh this tab."; return; }
+      const pdf = await pdfjsLib.getDocument({ data: new Uint8Array(await pasted.arrayBuffer()) }).promise;
+      for (let i = 1; i <= pdf.numPages; i++) text += (await (await pdf.getPage(i)).getTextContent()).items.map(it => it.str).join(" ") + "\n";
+    }
+    parsed = parseCheck(text, pasted.name || "Pasted snip");
+    if (!parsed){ status.textContent = "The file was read, but the earnings lines could not be found."; return; }
+    status.textContent = "Read the paycheck. Pick the two rotation weeks if they are not already chosen.";
     draw();
   } catch (err) { status.textContent = "Could not read that file: " + (err && err.message ? err.message : err); }
 }
@@ -130,7 +123,7 @@ function parseCheck(text, name){
 }
 function draw(){
   const a = document.getElementById("w1").value, b = document.getElementById("w2").value;
-  if (!a || !b){ status.textContent = "Pick both rotation weeks."; return; }
+  if (!a || !b){ status.textContent = "Pick both rotation weeks, then click Calculate."; return; }
   const picks = [caps[a], caps[b]];
   const eeRate = (Number(document.getElementById("defer").value) || 0) / 100;
   const pep = (Number(document.getElementById("pension").value) || 0) / 100;
