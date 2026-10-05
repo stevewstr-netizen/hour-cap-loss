@@ -4,8 +4,6 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>Entered time to paycheck</title>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
 <style>
   body { font-family: Arial, sans-serif; margin: 24px; color: #1a1a1a; }
   h1 { font-size: 22px; }
@@ -28,86 +26,41 @@
 </style>
 </head>
 <body>
-<h1>Entered time to paycheck</h1>
-<p class="note">Drop an entered-time PDF. The page starts blank. OSR is time-and-a-half. OT 1.5 changes by week. Old counts the scheduled hours worked. New counts 40 per week. Clear resets the form.</p>
+<h1>08/17-08/30 entered time</h1>
+<p class="note">Old method counts scheduled overtime as OSR. The only OT 1.5 left out is the 0.25-hour turnover that was not on the scheduled shift. New method counts 40 per week. The paycheck is unchanged. Enter the rate, 401(k) percent, and pension percent. Clear resets the form.</p>
 <div id="drop">
-  <div>Choose an entered-time PDF.</div>
-  <input id="file" type="file" accept="application/pdf,.pdf" />
   <label>Straight-time rate</label><input id="rate" type="number" value="" min="0" step="0.01" />
   <label>Your 401(k) percent</label><input id="defer" type="number" value="" min="0" step="0.5" />
   <label>Pension percent</label><input id="pension" type="number" value="" min="0" step="0.5" />
   <button type="button" id="go">Calculate</button>
   <button type="button" id="clear">Clear</button>
 </div>
-<p id="status">Waiting for an entered-time PDF.</p>
+<p id="status">08/17-08/30. Three turnover pieces of 0.25, totaling 0.75.</p>
 <div id="out"></div>
 <script>
-if (window.pdfjsLib) pdfjsLib.GlobalWorkerOptions.workerSrc = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
-const status = document.getElementById("status");
-let parsed = null;
-document.getElementById("file").addEventListener("change", () => handle(document.getElementById("file").files));
-document.getElementById("go").addEventListener("click", () => parsed ? draw(parsed) : status.textContent = "Choose an entered-time PDF first.");
-document.getElementById("clear").addEventListener("click", reset);
-function reset(){ parsed = null; document.getElementById("file").value = ""; document.getElementById("rate").value = ""; document.getElementById("defer").value = ""; document.getElementById("pension").value = ""; document.getElementById("out").innerHTML = ""; status.textContent = "Waiting for an entered-time PDF."; }
+const weeks = [
+  { name: "08/17-08/23", reg: 40, osr: 0, turnover: 0 },
+  { name: "08/24-08/30", reg: 39, osr: 28.25, turnover: 0.75 }
+];
+document.getElementById("go").onclick = draw;
+document.getElementById("clear").onclick = () => { document.getElementById("rate").value = ""; document.getElementById("defer").value = ""; document.getElementById("pension").value = ""; draw(); };
 function money(n){ return Number(n || 0).toLocaleString("en-US",{style:"currency",currency:"USD"}); }
 function num(n){ return Number(n || 0).toLocaleString("en-US",{maximumFractionDigits:2}); }
 function rate4(n){ return Number(n || 0).toLocaleString("en-US",{style:"currency",currency:"USD",minimumFractionDigits:2,maximumFractionDigits:2}); }
-function weekMath(w, base){ const total = w.reg + w.osr + w.ot; const ratio = total ? w.osr / total : 0; const rr = total ? base * (1 + 0.5 * ratio) : 0; return { total, ratio, rr, osrRate: base * 1.5, otRate: base + 0.5 * rr }; }
-async function handle(files){
-  try {
-    if (!files || !files.length) return;
-    const file = files[0];
-    const known = knownReport(file.name, "");
-    if (known){ parsed = known; status.textContent = "Read " + file.name + " as " + parsed.label + "."; draw(parsed); return; }
-    if (!window.pdfjsLib){ status.textContent = "The PDF reader did not load. Refresh this tab."; return; }
-    status.textContent = "Reading " + file.name + "...";
-    let text = file.name + "\n";
-    const data = new Uint8Array(await file.arrayBuffer());
-    const pdf = await pdfjsLib.getDocument({ data }).promise;
-    const page = await pdf.getPage(1);
-    const content = await page.getTextContent();
-    text += content.items.map(it => it.str).join(" ") + "\n";
-    if (!/Regular|108|79/.test(text) && window.Tesseract){
-      status.textContent = "Reading the header off the picture...";
-      const viewport = page.getViewport({ scale: 2 });
-      const canvas = document.createElement("canvas");
-      canvas.width = viewport.width; canvas.height = viewport.height;
-      await page.render({ canvasContext: canvas.getContext("2d"), viewport }).promise;
-      const header = document.createElement("canvas");
-      header.width = canvas.width; header.height = Math.round(canvas.height * 0.34);
-      header.getContext("2d").drawImage(canvas, 0, 0);
-      text += "\n" + (await Tesseract.recognize(header, "eng")).data.text;
-    }
-    parsed = knownReport(file.name, text) || parseTime(text, file.name);
-    if (!parsed){ status.textContent = "Opened the PDF, but the header did not include Regular Hours."; return; }
-    status.textContent = "Read " + parsed.label + ". Regular " + num(parsed.reg) + ", OSR " + num(parsed.osr) + ", OT " + num(parsed.ot) + ".";
-    draw(parsed);
-  } catch (err) { status.textContent = "Could not read that PDF: " + (err && err.message ? err.message : err); }
-}
-function knownReport(name, text){
-  const blob = (name + " " + text).toLowerCase();
-  if (/time entry 26-8-30|08\/17|total worked hours:?\s*108|regular hours:?\s*79/.test(blob)) return { label: "08/17/2026-08/30/2026", reg: 79, osr: 1, ot: 28, weeks: [{ name: "08/17-08/23", reg: 40, osr: 0, ot: 0 }, { name: "08/24-08/30", reg: 39, osr: 1, ot: 28 }] };
-  if (/117\.75|regular hours:?\s*61\.75/.test(blob)) return { label: "09/14/2026-09/27/2026", reg: 61.75, osr: 18.25, ot: 37.75, weeks: [{ name: "09/14-09/20", reg: 28, osr: 12, ot: 23.25 }, { name: "09/21-09/27", reg: 33.75, osr: 6.25, ot: 14.5 }] };
-  if (/\b149\b|regular hours:?\s*32\.75/.test(blob)) return { label: "09/28/2026-10/11/2026", reg: 32.75, osr: 17.75, ot: 98.5, weeks: [{ name: "09/28-10/04", reg: 32, osr: 8, ot: 23.25 }, { name: "10/05-10/11", reg: 0.75, osr: 9.75, ot: 75.25 }] };
-  return null;
-}
-function parseTime(text, name){
-  const regular = (text.match(/Regular Hours:?\s*([\d.]+)/i) || [])[1];
-  const mix = (text.match(/Overtime\s*\/\s*Off\w*:?\s*([\d.]+)/i) || [])[1];
-  if (!regular) return null;
-  const reg = parseFloat(regular), mixed = mix ? parseFloat(mix) : 0;
-  return { label: name, reg, osr: 0, ot: mixed, weeks: [{ name: "Report", reg, osr: 0, ot: mixed }] };
-}
-function draw(p){
+function draw(){
   const base = Number(document.getElementById("rate").value) || 0;
   const eeRate = (Number(document.getElementById("defer").value) || 0) / 100;
   const pep = (Number(document.getElementById("pension").value) || 0) / 100;
-  let pay = 0, oldHours = 0, newHours = 0, side = "";
-  for (const w of p.weeks){
-    const m = weekMath(w, base);
-    pay += w.reg * base + w.osr * m.osrRate + w.ot * m.otRate;
-    oldHours += m.total; newHours += Math.min(40, w.reg + w.osr);
-    side += `<p><b>${w.name}</b><br>OSR ${num(w.osr)} x ${base ? rate4(m.osrRate) : "rate"} = ${base ? money(w.osr * m.osrRate) : "-"}<br>Off-shift ratio ${num(w.osr)} / ${num(m.total)} = ${num(m.ratio * 100)}%<br>OT 1.5 ${num(w.ot)} x ${base ? rate4(m.otRate) : "rate"} = ${base ? money(w.ot * m.otRate) : "-"}</p>`;
+  let pay = 0, oldHours = 0, newHours = 0, reg = 0, osr = 0, turnover = 0, side = "";
+  for (const w of weeks){
+    const total = w.reg + w.osr + w.turnover;
+    const ratio = total ? (w.osr + w.turnover) / total : 0;
+    const otRate = base + 0.5 * base * (1 + 0.5 * ratio);
+    pay += w.reg * base + (w.osr + w.turnover) * base * 1.5;
+    oldHours += w.reg + w.osr;
+    newHours += Math.min(40, w.reg + w.osr);
+    reg += w.reg; osr += w.osr; turnover += w.turnover;
+    side += `<p><b>${w.name}</b><br>Scheduled OSR ${num(w.osr)} counts in the old method.<br>Turnover OT 1.5 ${num(w.turnover)} does not count.<br>OT rate on the check ${base ? rate4(otRate) : "enter a rate"}.</p>`;
   }
   const oldPay = oldHours * base, newPay = newHours * base;
   const eeOld = oldPay * eeRate, eeNew = newPay * eeRate;
@@ -115,11 +68,21 @@ function draw(p){
   const erNew = eeRate > 0 ? Math.min(eeNew * 0.5, newPay * 0.04) : 0;
   const taxOld = eeOld * 0.284, taxNew = eeNew * 0.284;
   const line = (name, old, neu, moneyish=true) => `<tr><td>${name}</td><td>${moneyish ? money(old) : num(old)}</td><td>${moneyish ? money(neu) : num(neu)}</td><td class="diff">${moneyish ? money(old - neu) : num(old - neu)}</td></tr>`;
-  document.getElementById("out").innerHTML = `<h2>${p.label}</h2><div class="wrap"><table><tr><th></th><th>Old, scheduled hours worked</th><th>New, 40 per week</th><th class="diff">Difference</th></tr>
-    ${line("Paycheck", pay, pay)} ${line("Hours counted for retirement", oldHours, newHours, false)} ${line("Regular Pay", p.reg, p.reg, false)} ${line("OSR", p.osr, p.osr, false)} ${line("OT 1.5", p.ot, p.ot, false)} ${line("Pay base, straight time", oldPay, newPay)} ${line("Your 401(k)", eeOld, eeNew)} ${line("Employer 401(k)", erOld, erNew)} ${line("Pension credit", oldPay * pep, newPay * pep)} ${line("Taxes saved", taxOld, taxNew)}
-  </table><div class="side"><h2>Weekly rates, like the check</h2>${side}</div></div>
+  document.getElementById("out").innerHTML = `<div class="wrap"><table><tr><th></th><th>Old, scheduled hours including OSR</th><th>New, 40 per week</th><th class="diff">Difference</th></tr>
+    ${line("Paycheck", pay, pay)}
+    ${line("Hours counted for retirement", oldHours, newHours, false)}
+    ${line("Regular Pay", reg, reg, false)}
+    ${line("OSR, scheduled overtime included", osr, Math.max(0, newHours - reg), false)}
+    ${line("Turnover OT 1.5, not counted", turnover, turnover, false)}
+    ${line("Pay base, straight time", oldPay, newPay)}
+    ${line("Your 401(k)", eeOld, eeNew)}
+    ${line("Employer 401(k)", erOld, erNew)}
+    ${line("Pension credit", oldPay * pep, newPay * pep)}
+    ${line("Taxes saved", taxOld, taxNew)}
+  </table><div class="side"><h2>Turnover is the only OT left out</h2>${side}<p>08/22, 08/23, and 08/28 each have 0.25 that was not on the scheduled shift. That 0.75 is the only OT 1.5 the old method does not count. The rest of the check's 28 OT hours were scheduled, so the old method counts them as OSR.</p></div></div>
   <div class="totals"><h2>Total difference</h2><ul><li>Your 401(k): ${money(eeOld - eeNew)}</li><li>Employer 401(k): ${money(erOld - erNew)}</li><li>Pension: ${money((oldPay - newPay) * pep)}</li><li>Taxes saved: ${money(taxOld - taxNew)}</li></ul><p>Combined: ${money((eeOld - eeNew) + (erOld - erNew) + (oldPay - newPay) * pep + (taxOld - taxNew))}.</p></div>`;
 }
+draw();
 </script>
 </body>
 </html>
