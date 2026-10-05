@@ -21,7 +21,7 @@
   th { background: #1F4E79; color: #fff; }
   td:first-child, th:first-child { text-align: left; }
   th.diff, td.diff { background: #F4CCCC; }
-  .side { max-width: 460px; background: #f7f7f7; border: 1px solid #1a1a1a; padding: 12px 14px; margin-top: 16px; }
+  .side { max-width: 480px; background: #f7f7f7; border: 1px solid #1a1a1a; padding: 12px 14px; margin-top: 16px; }
   .note { color: #595959; max-width: 940px; }
   .totals { margin-top: 18px; max-width: 540px; }
 </style>
@@ -47,7 +47,7 @@ document.getElementById("file").addEventListener("change", () => handle(document
 document.getElementById("go").addEventListener("click", () => parsed ? draw(parsed) : status.textContent = "Choose an entered-time PDF first.");
 function money(n){ return Number(n || 0).toLocaleString("en-US",{style:"currency",currency:"USD"}); }
 function num(n){ return Number(n || 0).toLocaleString("en-US",{maximumFractionDigits:2}); }
-function rate4(n){ return Number(n || 0).toLocaleString("en-US",{style:"currency",currency:"USD",minimumFractionDigits:2,maximumFractionDigits:2}); }
+function rate4(n){ return Number(n || 0).toLocaleString("en-US",{style:"currency",currency:"USD",minimumFractionDigits:4,maximumFractionDigits:4}); }
 function qty(raw){ let n = parseFloat(String(raw).replace(/,/g, "")); if (isNaN(n) || n <= 0) return 0; if (n > 16) n = n / 100; return n > 16 ? 0 : n; }
 async function handle(files){
   try {
@@ -119,7 +119,8 @@ function draw(p){
   const ratio = oldHours ? p.osr / oldHours : 0;
   const rr = oldHours ? (oldHours * base + p.osr * base * 0.5) / oldHours : 0;
   const otRate = base + 0.5 * rr;
-  const pay = p.reg * base + p.osr * base * 1.5 + p.ot * (base ? otRate : 0);
+  const osrRate = base * 1.5;
+  const pay = p.reg * base + p.osr * osrRate + p.ot * (base ? otRate : 0);
   const oldPay = oldHours * base, newPay = newHours * base;
   const eeOld = oldPay * eeRate, eeNew = newPay * eeRate;
   const erOld = eeRate > 0 ? Math.min(eeOld * 0.5, oldPay * 0.04) : 0;
@@ -137,7 +138,10 @@ function draw(p){
     ${line("Employer 401(k)", erOld, erNew)}
     ${line("Pension credit", oldPay * pep, newPay * pep)}
     ${line("Taxes saved", taxOld, taxNew)}
-  </table><div class="side"><h2>Read from this PDF</h2><p>Regular ${num(p.reg)}. OSR ${num(p.osr)}. OT ${num(p.ot)}. OT rate ${base ? rate4(otRate) : "enter a rate"}.</p><p>Old counts the scheduled hours worked. New counts 40 per week. Daily Schedule Deviation is OSR. Hours over 40 are OT 1.5.</p></div></div>
+  </table><div class="side"><h2>OSR and OT 1.5 rates</h2>
+    <p><b>OSR rate</b><br>${base ? money(base) : "rate"} x 1.5 = ${base ? rate4(osrRate) : "enter a rate"}<br>OSR pay = ${num(p.osr)} x ${base ? rate4(osrRate) : "rate"} = ${base ? money(p.osr * osrRate) : "enter a rate"}</p>
+    <p><b>Why OT 1.5 is a different rate</b><br>Off-shift ratio = ${num(p.osr)} / ${num(oldHours)} = ${num(ratio * 100)}%<br>Regular rate = ${base ? money(base) : "rate"} x (1 + 0.5 x ${num(ratio * 100)}%) = ${base ? rate4(rr) : "enter a rate"}<br>OT 1.5 rate = ${base ? money(base) : "rate"} + half of ${base ? rate4(rr) : "the regular rate"} = ${base ? rate4(otRate) : "enter a rate"}<br>OT pay = ${num(p.ot)} x ${base ? rate4(otRate) : "rate"} = ${base ? money(p.ot * otRate) : "enter a rate"}</p>
+    <p>A week with more OSR hours gets a higher OT 1.5 rate. OSR itself stays at time-and-a-half.</p></div></div>
   <div class="totals"><h2>Total difference</h2><ul><li>Your 401(k): ${money(eeOld - eeNew)}</li><li>Employer 401(k): ${money(erOld - erNew)}</li><li>Pension: ${money((oldPay - newPay) * pep)}</li><li>Taxes saved: ${money(taxOld - taxNew)}</li></ul><p>Combined: ${money((eeOld - eeNew) + (erOld - erNew) + (oldPay - newPay) * pep + (taxOld - taxNew))}.</p></div>`;
 }
 </script>
