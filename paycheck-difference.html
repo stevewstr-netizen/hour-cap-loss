@@ -28,7 +28,7 @@
 </head>
 <body>
 <h1>Paycheck Difference</h1>
-<p class="note">Upload the paycheck PDF. Pick the page, then the two rotation weeks in date order. PTO can only fill hours scheduled that week. It is split across the two weeks. Holiday counts. Bonus does not. The side shows the OT 1.5 math. Clear resets the form.</p>
+<p class="note">Upload the paycheck PDF. Pick the page, then the two rotation weeks in date order. PTO fills only scheduled hours. Overtime still inside the old schedule counts on the old side. The side shows the OT 1.5 math. Clear resets the form.</p>
 <div id="drop">
   <div>Choose the paycheck PDF.</div>
   <input id="file" type="file" accept="application/pdf,.pdf" />
@@ -106,7 +106,7 @@ function draw(){
   const eeRate = (Number(document.getElementById("defer").value) || 0) / 100;
   const pep = (Number(document.getElementById("pension").value) || 0) / 100;
   const base = parsed.rate || 0;
-  let left = parsed.pto, oldHours = 0, newHours = 0, side = `<p>PTO can only fill hours scheduled that week. It is split after holiday and regular hours. Off-shift is ${rate2(base)} x 1.5 = ${rate2(base * 1.5)}. OT 1.5 is the base plus half of the week's regular rate.</p>`;
+  let left = parsed.pto, oldHours = 0, newHours = 0, side = `<p>PTO fills only scheduled hours. Overtime still inside the old schedule counts on the old side. Off-shift is ${rate2(base)} x 1.5 = ${rate2(base * 1.5)}.</p>`;
   parsed.weeks.forEach((w, i) => {
     const cap = picks[i];
     const used = (w.reg || 0) + (w.off || 0) + (w.holiday || 0);
@@ -114,13 +114,14 @@ function draw(){
     const pto = Math.min(left, room);
     left -= pto;
     const countable = used + pto;
-    const oldWeek = Math.min(countable, cap.old), newWeek = Math.min(countable, cap.neu);
+    const otForOld = pto > 0 ? 0 : Math.min(w.ot || 0, Math.max(0, cap.old - countable));
+    const oldWeek = Math.min(countable + otForOld, cap.old), newWeek = Math.min(countable, cap.neu);
     oldHours += oldWeek; newHours += newWeek;
     const off = w.off || 0, ot = w.ot || 0, reg = w.reg || 0, total = reg + off + ot;
     const ratio = total ? off / total : 0;
     const regularRate = base * (1 + 0.5 * ratio);
     const otRate = base + 0.5 * regularRate;
-    side += `<p><b>${w.name}, ${cap.name}</b><br>Scheduled room after holiday and regular: ${num(room)}. PTO placed here: ${num(pto)}.<br>Old counts ${num(oldWeek)} of ${cap.old}. New counts ${num(newWeek)} of ${cap.neu}.<br>Off-shift ratio = ${num(off)} / ${num(total)}<br>Regular rate = ${rate2(base)} x (1 + 0.5 x ${num(ratio)}) = ${rate2(regularRate)}<br>OT 1.5 rate = ${rate2(base)} + half of ${rate2(regularRate)} = ${rate2(otRate)}<br>OT 1.5 pay = ${num(ot)} x ${rate2(otRate)} = ${money(ot * otRate)}</p>`;
+    side += `<p><b>${w.name}, ${cap.name}</b><br>PTO placed here: ${num(pto)}. Scheduled overtime counted on the old side: ${num(otForOld)}.<br>Old counts ${num(oldWeek)} of ${cap.old}. New counts ${num(newWeek)} of ${cap.neu}.<br>Off-shift ratio = ${num(off)} / ${num(total)}<br>Regular rate = ${rate2(base)} x (1 + 0.5 x ${num(ratio)}) = ${rate2(regularRate)}<br>OT 1.5 rate = ${rate2(base)} + half of ${rate2(regularRate)} = ${rate2(otRate)}<br>OT 1.5 pay = ${num(ot)} x ${rate2(otRate)} = ${money(ot * otRate)}</p>`;
   });
   const oldPay = oldHours * base, newPay = newHours * base;
   const eeOld = oldPay * eeRate, eeNew = newPay * eeRate;
@@ -130,7 +131,7 @@ function draw(){
   const line = (name, old, neu, moneyish=true) => `<tr><td>${name}</td><td>${moneyish ? money(old) : num(old)}</td><td>${moneyish ? money(neu) : num(neu)}</td><td class="diff">${moneyish ? money(old - neu) : num(old - neu)}</td></tr>`;
   document.getElementById("out").innerHTML = `<h2>Page ${page.page}: ${page.begin} to ${page.end}</h2><div class="wrap"><table><tr><th></th><th>Old, scheduled cap</th><th>New, 40 / 32 / 0</th><th class="diff">Difference</th></tr>
     ${line("Paycheck", parsed.pay, parsed.pay)} ${line("Hours counted for retirement", oldHours, newHours, false)} ${line("PTO counted", parsed.pto - left, parsed.pto - left, false)} ${line("Holiday counted", parsed.holiday, parsed.holiday, false)} ${line("Pay base, straight time", oldPay, newPay)} ${line("Your 401(k)", eeOld, eeNew)} ${line("Employer 401(k)", erOld, erNew)} ${line("Pension credit", oldPay * pep, newPay * pep)} ${line("Taxes saved", taxOld, taxNew)}
-  </table><div class="side"><h2>PTO split and OT 1.5</h2>${side}${left ? `<p>${num(left)} PTO hours did not fit the schedule.</p>` : ""}</div></div>
+  </table><div class="side"><h2>PTO split and OT 1.5</h2>${side}</div></div>
   <div class="totals"><h2>Total difference</h2><ul><li>Your 401(k): ${money(eeOld - eeNew)}</li><li>Employer 401(k): ${money(erOld - erNew)}</li><li>Pension: ${money((oldPay - newPay) * pep)}</li><li>Taxes saved: ${money(taxOld - taxNew)}</li></ul><p>Combined: ${money((eeOld - eeNew) + (erOld - erNew) + (oldPay - newPay) * pep + (taxOld - taxNew))}.</p></div>`;
 }
 </script>
