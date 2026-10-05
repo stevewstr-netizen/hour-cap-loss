@@ -11,41 +11,37 @@
   #drop { border: 2px dashed #1F4E79; border-radius: 8px; padding: 22px; background: #f4f8fb; max-width: 920px; }
   input[type=file] { display: block; margin-top: 12px; font-size: 16px; }
   #status { font-weight: bold; color: #1F4E79; }
+  .wrap { display: flex; gap: 24px; align-items: flex-start; flex-wrap: wrap; }
   table { border-collapse: collapse; margin-top: 16px; font-size: 13px; }
   th, td { border: 1px solid #1a1a1a; padding: 5px 8px; text-align: right; }
   th { background: #1F4E79; color: #fff; }
   td:first-child, th:first-child { text-align: left; }
   th.diff, td.diff { background: #F4CCCC; }
+  .side { max-width: 420px; background: #f7f7f7; border: 1px solid #1a1a1a; padding: 12px 14px; margin-top: 16px; }
+  .side h2, .totals h2 { font-size: 16px; margin: 0 0 8px; }
   .note { color: #595959; max-width: 920px; }
-  h2 { font-size: 16px; margin-top: 22px; }
+  .totals { margin-top: 18px; max-width: 520px; }
+  .totals li { margin: 6px 0; }
 </style>
 </head>
 <body>
 <h1>Old pay vs new pay</h1>
-<p class="note">Choose a Workday paycheck PDF. It stays on this computer. After you pick the file, the status line should say Reading, then Found. PTO counts in both methods. Holiday is paid at the regular rate and counts in neither. Off-shift counts at straight time. Overtime counts only on the old side. Employer 401(k) is half of what you put in, up to 4%. Nothing in means nothing from the employer.</p>
-<div id="drop">
-  <div>Choose a paycheck PDF.</div>
-  <input id="file" type="file" accept="application/pdf,.pdf" />
-</div>
+<p class="note">Choose a Workday paycheck PDF. It stays on this computer. PTO counts in both methods. Holiday is paid at the regular rate and counts in neither. Off-shift counts at straight time. Overtime counts only on the old side. Employer 401(k) is half of what you put in, up to 4%. Nothing in means nothing from the employer.</p>
+<div id="drop"><div>Choose a paycheck PDF.</div><input id="file" type="file" accept="application/pdf,.pdf" /></div>
 <p id="status">Waiting for a PDF.</p>
 <div id="out"></div>
 <script>
-if (!window.pdfjsLib) {
-  document.getElementById("status").textContent = "The PDF reader did not load. Refresh this tab and try again.";
-} else {
-  pdfjsLib.GlobalWorkerOptions.workerSrc = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
-}
+if (window.pdfjsLib) pdfjsLib.GlobalWorkerOptions.workerSrc = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
 const PEP = 0.10, CO = 0.044;
 const LIMITS = { 2023:22500, 2024:23000, 2025:23500, 2026:24500 };
 const BRACKETS = { single:[[0.10,12400],[0.12,50400],[0.22,105700],[0.24,201775],[0.32,256225],[0.35,640600],[0.37,Infinity]], joint:[[0.10,24800],[0.12,100800],[0.22,211400],[0.24,403550],[0.32,512450],[0.35,768700],[0.37,Infinity]] };
-const fileInput = document.getElementById("file");
-const status = document.getElementById("status");
-fileInput.addEventListener("change", () => handle(fileInput.files));
+document.getElementById("file").addEventListener("change", () => handle(document.getElementById("file").files));
 function money(n){ return Number(n || 0).toLocaleString("en-US",{style:"currency",currency:"USD"}); }
 function num(n){ return Number(n || 0).toLocaleString("en-US",{maximumFractionDigits:2}); }
 function rate4(n){ return Number(n || 0).toLocaleString("en-US",{style:"currency",currency:"USD",minimumFractionDigits:4,maximumFractionDigits:4}); }
 function bracket(name, taxable){ for (const [rate, top] of (BRACKETS[name] || BRACKETS.single)) if (taxable <= top) return rate; return 0.37; }
 async function handle(files){
+  const status = document.getElementById("status");
   try {
     if (!files || !files.length){ status.textContent = "No file selected."; return; }
     if (!window.pdfjsLib){ status.textContent = "The PDF reader did not load. Refresh this tab and try again."; return; }
@@ -65,9 +61,7 @@ async function handle(files){
     if (!rows.length){ status.textContent = "Opened the PDF, but found no RegPay, OT, PTO, or off-shift lines."; return; }
     status.textContent = "Found " + rows.length + " check" + (rows.length === 1 ? "" : "s") + ". Showing the latest.";
     render(rows);
-  } catch (err) {
-    status.textContent = "Could not calculate that PDF: " + (err && err.message ? err.message : err);
-  }
+  } catch (err) { status.textContent = "Could not calculate that PDF: " + (err && err.message ? err.message : err); }
 }
 function blank(){ return {reg:0,off:0,ot:0,pto:0,hol:0,otPay:0}; }
 function parseStubs(text){
@@ -76,11 +70,8 @@ function parseStubs(text){
   const earn = /(OffShft1\.5|RegPay1\.5|OT 1\.5|RegPay|Holiday|PTO)\s+(\d{2}\/\d{2}\/\d{4})\s*-\s*\d{2}\/\d{2}\/\d{4}\s+(\d+(?:\.\d+)?)\s+(\d+(?:\.\d+)?)\s+([\d,]+\.\d{2})/g;
   const rows = [];
   for (const chunk of chunks){
-    const h = chunk.match(hdr);
-    if (!h) continue;
-    const byWeek = [blank(), blank()];
-    let rate = 0;
-    const begin = new Date(h[1]);
+    const h = chunk.match(hdr); if (!h) continue;
+    const byWeek = [blank(), blank()]; let rate = 0; const begin = new Date(h[1]);
     let m; const local = new RegExp(earn.source, "g");
     while ((m = local.exec(chunk))){
       const code = m[1], start = new Date(m[2]), hours = parseFloat(m[3]), lineRate = parseFloat(m[4]), amt = parseFloat(m[5].replace(/,/g, ""));
@@ -91,10 +82,6 @@ function parseStubs(text){
       else if (code === "PTO") w.pto += hours;
       else if (code === "Holiday") w.hol += hours;
     }
-    if (!rate){
-      const rateMatch = chunk.match(/RegPay\s+\d{2}\/\d{2}\/\d{4}\s*-\s*\d{2}\/\d{2}\/\d{4}\s+\d+(?:\.\d+)?\s+(\d+(?:\.\d+)?)/);
-      if (rateMatch) rate = parseFloat(rateMatch[1]);
-    }
     if (!byWeek.some(w => w.reg + w.off + w.ot + w.pto + w.hol)) continue;
     const ee = chunk.match(/401\(k\)\s+([\d,]+\.\d{2})\s+([\d,]+\.\d{2})/);
     const tax = chunk.match(/Federal Withholding - Taxable Wages\s+([\d,]+\.\d{2})\s+([\d,]+\.\d{2})/);
@@ -104,12 +91,12 @@ function parseStubs(text){
 }
 function weekMath(w, base){
   const total = w.reg + w.off + w.ot + w.pto + w.hol;
-  const rr = total ? (total * base + w.off * base * 0.5) / total : 0;
-  return { total, rr, calcOt: base + 0.5 * rr, stubOt: w.ot ? w.otPay / w.ot : 0 };
+  const ratio = total ? w.off / total : 0;
+  const rr = total ? base * (1 + 0.5 * ratio) : 0;
+  return { total, ratio, rr, calcOt: base + 0.5 * rr, stubOt: w.ot ? w.otPay / w.ot : 0 };
 }
 function render(rows){
-  const last = rows[rows.length - 1];
-  const base = last.rate || 0;
+  const last = rows[rows.length - 1], base = last.rate || 0;
   const sum = key => last.byWeek[0][key] + last.byWeek[1][key];
   const reg = sum("reg"), off = sum("off"), ot = sum("ot"), pto = sum("pto"), hol = sum("hol");
   const math = last.byWeek.map(w => weekMath(w, base));
@@ -118,33 +105,38 @@ function render(rows){
   const oldPay = oldHours * base, newPay = newHours * base;
   const year = Number(String(last.end).slice(6));
   const room = Math.max(0, (LIMITS[year] || 24500) - Math.max(0, last.eeYtd - last.ee));
-  const defer = newPay > 0 ? last.ee / newPay : 0;
   const contributing = last.ee > 0;
   const eeNew = contributing ? Math.min(last.ee, room) : 0;
-  const eeOld = contributing ? Math.min(oldPay * defer, room) : 0;
+  const eeOld = contributing && newPay > 0 ? Math.min(oldPay * (last.ee / newPay), room) : 0;
   const erOld = contributing ? Math.min(eeOld * 0.5, oldPay * 0.04) : 0;
   const erNew = contributing ? Math.min(eeNew * 0.5, newPay * 0.04) : 0;
   const fed = bracket(last.statusName, last.taxableYtd);
+  const taxOld = eeOld * (fed + CO), taxNew = eeNew * (fed + CO);
   const line = (label, old, neu, moneyish=true) => `<tr><td>${label}</td><td>${moneyish ? money(old) : num(old)}</td><td>${moneyish ? money(neu) : num(neu)}</td><td class="diff">${moneyish ? money(old - neu) : num(old - neu)}</td></tr>`;
-  let html = `<h2>Check ending ${last.end}</h2><table><tr><th></th><th>Old method</th><th>New method</th><th class="diff">Difference</th></tr>`;
-  html += line("Paycheck", pay, pay);
-  html += line("Regular hours", reg, reg, false);
-  html += line("Off-shift hours counted at straight time", off, off, false);
-  html += line("PTO hours, paid at regular rate", pto, pto, false);
-  html += line("Holiday hours paid, not counted", hol, hol, false);
-  html += line("OT hours counted", ot, 0, false);
-  html += line("Hours counted for pension and 401(k)", oldHours, newHours, false);
-  html += line("Pay base for pension and 401(k)", oldPay, newPay);
-  html += line("Your 401(k)", eeOld, eeNew);
-  html += line("Employer 401(k)", erOld, erNew);
-  html += line("Pension credit, 10%", oldPay * PEP, newPay * PEP);
-  html += line("Income tax saved by your 401(k)", eeOld * (fed + CO), eeNew * (fed + CO));
-  html += "</table>";
-  html += `<p>${contributing ? "You contributed on this check, so the employer match is half of that, up to 4% of the counted base." : "No employee 401(k) on this check, so the employer 401(k) is zero on both sides."}</p>`;
-  html += "<h2>Overtime rate by week</h2><table><tr><th></th><th>Hours</th><th>Off-shift</th><th>PTO</th><th>Holiday</th><th>Regular rate</th><th>Calculated OT rate</th><th>Stub OT rate</th></tr>";
-  math.forEach((m, i) => { const w = last.byWeek[i]; html += `<tr><td>Week ${i + 1}</td><td>${num(m.total)}</td><td>${num(w.off)}</td><td>${num(w.pto)}</td><td>${num(w.hol)}</td><td>${rate4(m.rr)}</td><td>${m.total ? rate4(m.calcOt) : "-"}</td><td>${m.stubOt ? rate4(m.stubOt) : "-"}</td></tr>`; });
-  html += "</table>";
-  document.getElementById("out").innerHTML = html;
+  let side = math.map((m, i) => {
+    const w = last.byWeek[i];
+    return `<p><b>Week ${i + 1}</b><br>Off-shift ratio = ${num(w.off)} / ${num(m.total)} = ${num(m.ratio * 100)}%<br>Regular rate = ${money(base)} x (1 + 0.5 x ${num(m.ratio * 100)}%) = ${rate4(m.rr)}<br>OT 1.5 rate = ${money(base)} + half of ${rate4(m.rr)} = ${rate4(m.calcOt)}<br>Stub OT rate = ${m.stubOt ? rate4(m.stubOt) : "none"}</p>`;
+  }).join("");
+  document.getElementById("out").innerHTML = `<h2>Check ending ${last.end}</h2><div class="wrap"><table><tr><th></th><th>Old method</th><th>New method</th><th class="diff">Difference</th></tr>
+    ${line("Paycheck", pay, pay)}
+    ${line("Regular hours", reg, reg, false)}
+    ${line("Off-shift hours counted at straight time", off, off, false)}
+    ${line("PTO hours, paid at regular rate", pto, pto, false)}
+    ${line("Holiday hours paid, not counted", hol, hol, false)}
+    ${line("OT hours counted", ot, 0, false)}
+    ${line("Hours counted for pension and 401(k)", oldHours, newHours, false)}
+    ${line("Pay base for pension and 401(k)", oldPay, newPay)}
+    ${line("Your 401(k)", eeOld, eeNew)}
+    ${line("Employer 401(k)", erOld, erNew)}
+    ${line("Pension credit, 10%", oldPay * PEP, newPay * PEP)}
+    ${line("Taxes saved", taxOld, taxNew)}
+  </table><div class="side"><h2>How OT 1.5 is calculated</h2><p>The off-shift premium raises the regular rate. A week with a higher off-shift ratio gets a higher OT rate.</p><p>Regular rate = base x (1 + 0.5 x off-shift hours / all hours)</p><p>OT 1.5 rate = base + half of the regular rate</p>${side}</div></div>
+  <div class="totals"><h2>Total difference</h2><ul>
+    <li>Your 401(k): ${money(eeOld - eeNew)}</li>
+    <li>Employer 401(k): ${money(erOld - erNew)}</li>
+    <li>Pension: ${money((oldPay - newPay) * PEP)}</li>
+    <li>Taxes saved: ${money(taxOld - taxNew)}</li>
+  </ul><p>Combined: ${money((eeOld - eeNew) + (erOld - erNew) + (oldPay - newPay) * PEP + (taxOld - taxNew))}.</p></div>`;
 }
 </script>
 </body>
