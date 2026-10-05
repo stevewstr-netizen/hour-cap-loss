@@ -8,7 +8,6 @@
   body { font-family: Arial, sans-serif; margin: 24px; color: #1a1a1a; }
   h1 { font-size: 22px; }
   #drop { border: 2px dashed #1F4E79; border-radius: 8px; padding: 22px; background: #f4f8fb; max-width: 980px; }
-  input[type=file] { display: block; margin-top: 12px; font-size: 16px; }
   label { display: block; margin-top: 10px; font-weight: bold; }
   input[type=number] { font-size: 16px; padding: 4px; width: 140px; }
   button { background: #1F4E79; color: #fff; border: 0; padding: 8px 14px; border-radius: 4px; cursor: pointer; margin: 12px 8px 0 0; }
@@ -27,7 +26,7 @@
 </head>
 <body>
 <h1>08/17-08/30 entered time</h1>
-<p class="note">Old method counts scheduled overtime as OSR. The only OT 1.5 left out is the 0.25-hour turnover that was not on the scheduled shift. New method counts 40 per week. The paycheck is unchanged. Enter the rate, 401(k) percent, and pension percent. Clear resets the form.</p>
+<p class="note">Old method counts scheduled overtime as OSR. The only OT 1.5 left out is the 0.25-hour turnover that was not on the scheduled shift. New method counts 40 per week. Enter the rate, 401(k) percent, and pension percent. Clear resets the form.</p>
 <div id="drop">
   <label>Straight-time rate</label><input id="rate" type="number" value="" min="0" step="0.01" />
   <label>Your 401(k) percent</label><input id="defer" type="number" value="" min="0" step="0.5" />
@@ -35,15 +34,22 @@
   <button type="button" id="go">Calculate</button>
   <button type="button" id="clear">Clear</button>
 </div>
-<p id="status">08/17-08/30. Three turnover pieces of 0.25, totaling 0.75.</p>
+<p id="status">Enter the rate and percents, then Calculate.</p>
 <div id="out"></div>
 <script>
 const weeks = [
   { name: "08/17-08/23", reg: 40, osr: 0, turnover: 0 },
   { name: "08/24-08/30", reg: 39, osr: 28.25, turnover: 0.75 }
 ];
-document.getElementById("go").onclick = draw;
-document.getElementById("clear").onclick = () => { document.getElementById("rate").value = ""; document.getElementById("defer").value = ""; document.getElementById("pension").value = ""; draw(); };
+document.getElementById("go").addEventListener("click", draw);
+document.getElementById("clear").addEventListener("click", reset);
+function reset(){
+  document.getElementById("rate").value = "";
+  document.getElementById("defer").value = "";
+  document.getElementById("pension").value = "";
+  document.getElementById("out").innerHTML = "";
+  document.getElementById("status").textContent = "Cleared. Enter the rate and percents, then Calculate.";
+}
 function money(n){ return Number(n || 0).toLocaleString("en-US",{style:"currency",currency:"USD"}); }
 function num(n){ return Number(n || 0).toLocaleString("en-US",{maximumFractionDigits:2}); }
 function rate4(n){ return Number(n || 0).toLocaleString("en-US",{style:"currency",currency:"USD",minimumFractionDigits:2,maximumFractionDigits:2}); }
@@ -68,6 +74,7 @@ function draw(){
   const erNew = eeRate > 0 ? Math.min(eeNew * 0.5, newPay * 0.04) : 0;
   const taxOld = eeOld * 0.284, taxNew = eeNew * 0.284;
   const line = (name, old, neu, moneyish=true) => `<tr><td>${name}</td><td>${moneyish ? money(old) : num(old)}</td><td>${moneyish ? money(neu) : num(neu)}</td><td class="diff">${moneyish ? money(old - neu) : num(old - neu)}</td></tr>`;
+  document.getElementById("status").textContent = "08/17-08/30. Turnover not counted: 0.75.";
   document.getElementById("out").innerHTML = `<div class="wrap"><table><tr><th></th><th>Old, scheduled hours including OSR</th><th>New, 40 per week</th><th class="diff">Difference</th></tr>
     ${line("Paycheck", pay, pay)}
     ${line("Hours counted for retirement", oldHours, newHours, false)}
@@ -79,10 +86,9 @@ function draw(){
     ${line("Employer 401(k)", erOld, erNew)}
     ${line("Pension credit", oldPay * pep, newPay * pep)}
     ${line("Taxes saved", taxOld, taxNew)}
-  </table><div class="side"><h2>Turnover is the only OT left out</h2>${side}<p>08/22, 08/23, and 08/28 each have 0.25 that was not on the scheduled shift. That 0.75 is the only OT 1.5 the old method does not count. The rest of the check's 28 OT hours were scheduled, so the old method counts them as OSR.</p></div></div>
+  </table><div class="side"><h2>Turnover is the only OT left out</h2>${side}<p>08/22, 08/23, and 08/28 each have 0.25 that was not on the scheduled shift. That 0.75 is the only OT 1.5 the old method does not count.</p></div></div>
   <div class="totals"><h2>Total difference</h2><ul><li>Your 401(k): ${money(eeOld - eeNew)}</li><li>Employer 401(k): ${money(erOld - erNew)}</li><li>Pension: ${money((oldPay - newPay) * pep)}</li><li>Taxes saved: ${money(taxOld - taxNew)}</li></ul><p>Combined: ${money((eeOld - eeNew) + (erOld - erNew) + (oldPay - newPay) * pep + (taxOld - taxNew))}.</p></div>`;
 }
-draw();
 </script>
 </body>
 </html>
