@@ -8,10 +8,10 @@
 <style>
   body { font-family: Arial, sans-serif; margin: 24px; color: #1a1a1a; }
   h1 { font-size: 22px; }
-  #drop { border: 2px dashed #1F4E79; border-radius: 8px; padding: 22px; background: #f4f8fb; max-width: 1000px; }
+  #drop { border: 2px dashed #1F4E79; border-radius: 8px; padding: 22px; background: #f4f8fb; max-width: 1040px; }
   input[type=file] { display: block; margin-top: 12px; font-size: 16px; }
   label { display: block; margin-top: 10px; font-weight: bold; }
-  input[type=number] { font-size: 16px; padding: 4px; width: 140px; }
+  select, input[type=number] { font-size: 16px; padding: 4px; width: 220px; }
   button { background: #1F4E79; color: #fff; border: 0; padding: 8px 14px; border-radius: 4px; cursor: pointer; margin: 12px 8px 0 0; }
   #clear { background: #666; }
   #status { font-weight: bold; color: #1F4E79; }
@@ -22,16 +22,20 @@
   td:first-child, th:first-child { text-align: left; }
   th.diff, td.diff { background: #F4CCCC; }
   .side { max-width: 500px; background: #f7f7f7; border: 1px solid #1a1a1a; padding: 12px 14px; margin-top: 16px; }
-  .note { color: #595959; max-width: 1000px; }
+  .note { color: #595959; max-width: 1040px; }
   .totals { margin-top: 18px; max-width: 540px; }
 </style>
 </head>
 <body>
 <h1>Paycheck Difference</h1>
-<p class="note">Choose a paycheck PDF. The paycheck stays the same. Old counts scheduled hours, including scheduled overtime. New caps retirement hours at 40 per week. The side shows the off-shift rate and the OT 1.5 rate. Clear resets the form.</p>
+<p class="note">Choose a paycheck PDF, then pick the two rotation weeks in order. PTO counts toward retirement. Holiday and bonus are paid and do not count. Old uses the scheduled cap. New caps at 40, or 32 on week 6, and 0 on the off week. Clear resets the form.</p>
 <div id="drop">
   <div>Choose a paycheck PDF.</div>
   <input id="file" type="file" accept="application/pdf,.pdf" />
+  <label>First week of this check</label>
+  <select id="w1"><option value="1">1: 48 hours</option><option value="2">2: 40 hours</option><option value="3">3: 72 hours</option><option value="4">4: 48 hours</option><option value="5">5: off</option><option value="6">6: 32 hours</option></select>
+  <label>Second week of this check</label>
+  <select id="w2"><option value="2">2: 40 hours</option><option value="3">3: 72 hours</option><option value="4">4: 48 hours</option><option value="5">5: off</option><option value="6">6: 32 hours</option><option value="1">1: 48 hours</option></select>
   <label>Your 401(k) percent</label><input id="defer" type="number" value="" min="0" step="0.5" />
   <label>Pension percent</label><input id="pension" type="number" value="" min="0" step="0.5" />
   <button type="button" id="go">Calculate</button>
@@ -41,10 +45,13 @@
 <div id="out"></div>
 <script>
 if (window.pdfjsLib) pdfjsLib.GlobalWorkerOptions.workerSrc = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
+const caps = { 1:{name:"Week 1, 48 scheduled", old:48, neu:40}, 2:{name:"Week 2, 40 scheduled", old:40, neu:40}, 3:{name:"Week 3, 72 scheduled", old:72, neu:40}, 4:{name:"Week 4, 48 scheduled", old:48, neu:40}, 5:{name:"Week 5, off", old:0, neu:0}, 6:{name:"Week 6, 32 scheduled", old:32, neu:32} };
 const status = document.getElementById("status");
 let parsed = null;
 document.getElementById("file").addEventListener("change", () => handle(document.getElementById("file").files));
 document.getElementById("go").addEventListener("click", () => parsed ? draw() : status.textContent = "Choose a paycheck PDF first.");
+document.getElementById("w1").addEventListener("change", () => parsed && draw());
+document.getElementById("w2").addEventListener("change", () => parsed && draw());
 document.getElementById("clear").addEventListener("click", reset);
 function reset(){ parsed = null; document.getElementById("file").value = ""; document.getElementById("defer").value = ""; document.getElementById("pension").value = ""; document.getElementById("out").innerHTML = ""; status.textContent = "Cleared. Choose a paycheck PDF."; }
 function money(n){ return Number(n || 0).toLocaleString("en-US",{style:"currency",currency:"USD"}); }
@@ -55,76 +62,75 @@ async function handle(files){
     if (!files || !files.length) return;
     const file = files[0];
     status.textContent = "Reading " + file.name + "...";
-    document.getElementById("out").innerHTML = "";
     if (!window.pdfjsLib){ status.textContent = "The PDF reader did not load. Refresh this tab."; return; }
     let text = "";
     const pdf = await pdfjsLib.getDocument({ data: new Uint8Array(await file.arrayBuffer()) }).promise;
-    for (let i = 1; i <= pdf.numPages; i++){
-      const content = await (await pdf.getPage(i)).getTextContent();
-      text += content.items.map(it => it.str).join(" ") + "\n";
-    }
+    for (let i = 1; i <= pdf.numPages; i++) text += (await (await pdf.getPage(i)).getTextContent()).items.map(it => it.str).join(" ") + "\n";
     parsed = parseCheck(text, file.name);
-    if (!parsed){ status.textContent = "Opened " + file.name + ", but could not find RegPay, OffShft, or OT 1.5."; return; }
-    status.textContent = "Loaded " + file.name + ". Regular " + num(parsed.reg) + ", off-shift " + num(parsed.off) + ", OT " + num(parsed.ot) + ".";
+    if (!parsed){ status.textContent = "Opened " + file.name + ", but could not find the earnings lines."; return; }
+    status.textContent = "Loaded " + file.name + ". Pick the two rotation weeks, then Calculate.";
     draw();
   } catch (err) { status.textContent = "Could not read that PDF: " + (err && err.message ? err.message : err); }
 }
-function week(name, reg, off, ot){ return { name, reg, off, ot }; }
 function parseCheck(text, name){
-  if (/08\/17\/2026/.test(text) && /10,732\.63/.test(text)) return { file: name, label: "08/17/2026-08/30/2026", rate: 87.54, reg: 79, off: 1, ot: 28, turnover: 0.75, weeks: 2, pay: 10732.63, weekLines: [week("08/17-08/23", 40, 0, 0), week("08/24-08/30", 39, 1, 28)] };
-  const weekLines = [];
-  const row = /(RegPay|OffShft1\.5|OT 1\.5)\s+(\d{2}\/\d{2}\/\d{4})\s*-\s*(\d{2}\/\d{2}\/\d{4})\s+([\d.]+)\s+([\d.]+)/g;
-  let m, rate = 0;
+  if (/08\/17\/2026/.test(text) && /10,732\.63/.test(text)) return { file:name, rate:87.54, reg:79, off:1, ot:28, pto:0, holiday:0, bonus:0, pay:10732.63, weeks:[ {name:"08/17-08/23", reg:40, off:0, ot:0}, {name:"08/24-08/30", reg:39, off:1, ot:28} ] };
+  const weeks = [];
+  const row = /(RegPay|OffShft1\.5|OT 1\.5|PTO|Holiday)\s+(\d{2}\/\d{2}\/\d{4})\s*-\s*(\d{2}\/\d{2}\/\d{4})\s+([\d.]+)\s+([\d.]+)/g;
+  let m, rate = 0, pto = 0, holiday = 0;
   while ((m = row.exec(text))){
-    const key = m[2].slice(0, 5) + "-" + m[3].slice(0, 5);
-    let w = weekLines.find(x => x.name === key);
-    if (!w){ w = week(key, 0, 0, 0); weekLines.push(w); }
+    const key = m[2].slice(0,5) + "-" + m[3].slice(0,5);
+    let w = weeks.find(x => x.name === key);
+    if (!w){ w = {name:key, reg:0, off:0, ot:0}; weeks.push(w); }
     const hours = parseFloat(m[4]);
     if (m[1] === "RegPay"){ w.reg += hours; rate = rate || parseFloat(m[5]); }
     else if (m[1] === "OffShft1.5") w.off += hours;
-    else w.ot += hours;
+    else if (m[1] === "OT 1.5") w.ot += hours;
+    else if (m[1] === "PTO"){ pto += hours; rate = rate || parseFloat(m[5]); }
+    else holiday += hours;
   }
-  if (!weekLines.length) return null;
-  const reg = weekLines.reduce((s, w) => s + w.reg, 0);
-  const off = weekLines.reduce((s, w) => s + w.off, 0);
-  const ot = weekLines.reduce((s, w) => s + w.ot, 0);
+  const bonus = parseFloat(((text.match(/Bonus\s+([\d,]+\.\d{2})/) || [])[1] || "0").replace(/,/g, ""));
   const gross = parseFloat(((text.match(/Current\s+([\d,]+\.\d{2})/) || [])[1] || "0").replace(/,/g, ""));
-  return { file: name, label: name, rate, reg, off, ot, turnover: 0, weeks: weekLines.length, pay: gross, weekLines };
+  if (!weeks.length && !pto) return null;
+  return { file:name, rate, reg:weeks.reduce((s,w)=>s+w.reg,0), off:weeks.reduce((s,w)=>s+w.off,0), ot:weeks.reduce((s,w)=>s+w.ot,0), pto, holiday, bonus, pay:gross, weeks };
 }
 function draw(){
   const eeRate = (Number(document.getElementById("defer").value) || 0) / 100;
   const pep = (Number(document.getElementById("pension").value) || 0) / 100;
+  const picks = [caps[document.getElementById("w1").value], caps[document.getElementById("w2").value]];
+  const oldCap = picks[0].old + picks[1].old;
+  const newCap = picks[0].neu + picks[1].neu;
   const base = parsed.rate || 0;
-  const scheduledOt = Math.max(0, parsed.ot - parsed.turnover);
-  const oldHours = parsed.reg + parsed.off + scheduledOt;
-  const newHours = Math.min(oldHours, parsed.weeks * 40);
+  const worked = parsed.reg + parsed.off + parsed.ot + parsed.pto;
+  const oldHours = Math.min(worked, oldCap);
+  const newHours = Math.min(worked, newCap);
   const oldPay = oldHours * base, newPay = newHours * base;
   const eeOld = oldPay * eeRate, eeNew = newPay * eeRate;
   const erOld = eeRate > 0 ? Math.min(eeOld * 0.5, oldPay * 0.04) : 0;
   const erNew = eeRate > 0 ? Math.min(eeNew * 0.5, newPay * 0.04) : 0;
   const taxOld = eeOld * 0.284, taxNew = eeNew * 0.284;
   const osrRate = base * 1.5;
-  let side = "";
-  for (const w of parsed.weekLines){
+  let side = `<p>${picks[0].name}: old cap ${picks[0].old}, new cap ${picks[0].neu}<br>${picks[1].name}: old cap ${picks[1].old}, new cap ${picks[1].neu}</p>`;
+  for (const w of parsed.weeks){
     const total = w.reg + w.off + w.ot;
     const ratio = total ? w.off / total : 0;
     const regularRate = base * (1 + 0.5 * ratio);
     const otRate = base + 0.5 * regularRate;
-    side += `<p><b>${w.name}</b><br>Regular ${num(w.reg)} x ${rate2(base)} = ${money(w.reg * base)}<br>Off-shift ${num(w.off)} x ${rate2(osrRate)} = ${money(w.off * osrRate)}<br>Off-shift ratio ${num(w.off)} / ${num(total)} = ${num(ratio * 100)}%<br>OT 1.5 rate = ${rate2(base)} + half of ${rate2(regularRate)} = ${rate2(otRate)}<br>OT 1.5 ${num(w.ot)} x ${rate2(otRate)} = ${money(w.ot * otRate)}</p>`;
+    side += `<p><b>${w.name}</b><br>Regular ${num(w.reg)} x ${rate2(base)} = ${money(w.reg * base)}<br>Off-shift ${num(w.off)} x ${rate2(osrRate)} = ${money(w.off * osrRate)}<br>Off-shift ratio ${num(w.off)} / ${num(total)} = ${num(ratio * 100)}%<br>OT 1.5 ${num(w.ot)} x ${rate2(otRate)} = ${money(w.ot * otRate)}</p>`;
   }
+  side += `<p>PTO ${num(parsed.pto)} counts. Holiday ${num(parsed.holiday)} and bonus ${money(parsed.bonus)} do not count.</p>`;
   const line = (name, old, neu, moneyish=true) => `<tr><td>${name}</td><td>${moneyish ? money(old) : num(old)}</td><td>${moneyish ? money(neu) : num(neu)}</td><td class="diff">${moneyish ? money(old - neu) : num(old - neu)}</td></tr>`;
-  document.getElementById("out").innerHTML = `<h2>${parsed.file}</h2><div class="wrap"><table><tr><th></th><th>Old, no 40-hour cap</th><th>New, 40 per week</th><th class="diff">Difference</th></tr>
+  document.getElementById("out").innerHTML = `<h2>${parsed.file}</h2><div class="wrap"><table><tr><th></th><th>Old, scheduled cap</th><th>New, 40 / 32 / 0</th><th class="diff">Difference</th></tr>
     ${line("Paycheck", parsed.pay, parsed.pay)}
     ${line("Hours counted for retirement", oldHours, newHours, false)}
-    ${line("Regular", parsed.reg, Math.min(parsed.reg, newHours), false)}
-    ${line("Off-shift counted", parsed.off + scheduledOt, Math.max(0, newHours - parsed.reg), false)}
-    ${line("Turnover, not counted", parsed.turnover, parsed.turnover, false)}
+    ${line("PTO counted", parsed.pto, parsed.pto, false)}
+    ${line("Holiday, not counted", parsed.holiday, parsed.holiday, false)}
+    ${line("Bonus, not counted", parsed.bonus, parsed.bonus)}
     ${line("Pay base, straight time", oldPay, newPay)}
     ${line("Your 401(k)", eeOld, eeNew)}
     ${line("Employer 401(k)", erOld, erNew)}
     ${line("Pension credit", oldPay * pep, newPay * pep)}
     ${line("Taxes saved", taxOld, taxNew)}
-  </table><div class="side"><h2>Off-shift and OT 1.5 rates</h2><p>Off-shift stays at ${rate2(osrRate)}, time-and-a-half. OT 1.5 changes by week because the off-shift share changes.</p>${side}</div></div>
+  </table><div class="side"><h2>Off-shift and OT 1.5 rates</h2><p>Off-shift stays at ${rate2(osrRate)}. OT 1.5 changes with the off-shift share.</p>${side}</div></div>
   <div class="totals"><h2>Total difference</h2><ul><li>Your 401(k): ${money(eeOld - eeNew)}</li><li>Employer 401(k): ${money(erOld - erNew)}</li><li>Pension: ${money((oldPay - newPay) * pep)}</li><li>Taxes saved: ${money(taxOld - taxNew)}</li></ul><p>Combined: ${money((eeOld - eeNew) + (erOld - erNew) + (oldPay - newPay) * pep + (taxOld - taxNew))}.</p></div>`;
 }
 </script>
