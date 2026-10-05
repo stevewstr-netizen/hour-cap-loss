@@ -39,7 +39,10 @@
   <label>Second week</label>
   <select id="w2"><option value="">Choose the rotation week</option><option value="1">1: 48 scheduled</option><option value="2">2: 40 scheduled</option><option value="3">3: 72 scheduled</option><option value="4">4: 48 scheduled</option><option value="5">5: off</option><option value="6">6: 32 scheduled</option></select>
   <label>Age at year end</label>
-  <select id="age"><option value="under">Under 50</option><option value="over">50 or over</option></select>
+  <div>
+    <label><input type="radio" name="age" value="under" checked /> Under 50</label>
+    <label><input type="radio" name="age" value="over" /> 50 or over</label>
+  </div>
   <label>401(k) already deferred this year, before this check</label><input id="ytd" type="number" value="" min="0" step="0.01" />
   <label>Your 401(k) percent</label><input id="defer" type="number" value="" min="0" step="0.5" />
   <label>Pension percent</label><input id="pension" type="number" value="" min="0" step="0.5" />
@@ -58,14 +61,15 @@ document.getElementById("file").addEventListener("change", () => load(document.g
 document.getElementById("go").addEventListener("click", draw);
 document.getElementById("check").addEventListener("change", draw);
 document.getElementById("clear").addEventListener("click", reset);
-function reset(){ pages = []; document.getElementById("file").value = ""; document.getElementById("check").innerHTML = "<option value=''>Upload the PDF first</option>"; ["w1","w2","ytd","defer","pension"].forEach(id => document.getElementById(id).value = ""); document.getElementById("age").value = "under"; document.getElementById("out").innerHTML = ""; status.textContent = "Cleared. Upload the paycheck PDF."; }
+function ageValue(){ const picked = document.querySelector("input[name=age]:checked"); return picked ? picked.value : "under"; }
+function reset(){ pages = []; document.getElementById("file").value = ""; document.getElementById("check").innerHTML = "<option value=''>Upload the PDF first</option>"; ["w1","w2","ytd","defer","pension"].forEach(id => document.getElementById(id).value = ""); document.querySelector("input[name=age][value=under]").checked = true; document.getElementById("out").innerHTML = ""; status.textContent = "Cleared. Upload the paycheck PDF."; }
 function money(n){ return Number(n || 0).toLocaleString("en-US",{style:"currency",currency:"USD"}); }
 function num(n){ return Number(n || 0).toLocaleString("en-US",{maximumFractionDigits:2}); }
 function rate2(n){ return Number(n || 0).toLocaleString("en-US",{style:"currency",currency:"USD",minimumFractionDigits:2,maximumFractionDigits:2}); }
 function capDeferral(amount){
   const year = Number((pages.find(p => String(p.page) === document.getElementById("check").value).begin || "").slice(-4)) || 2026;
   const row = limits[year] || limits[2026];
-  const limit = row.base + (document.getElementById("age").value === "over" ? row.catchup : 0);
+  const limit = row.base + (ageValue() === "over" ? row.catchup : 0);
   const already = Number(document.getElementById("ytd").value) || 0;
   const room = Math.max(0, limit - already);
   return { year, limit, room, amount: Math.min(amount, room) };
@@ -74,7 +78,7 @@ async function load(files){
   try {
     if (!files || !files.length) return;
     status.textContent = "Reading every page...";
-    const pdf = await pdfjsLib.getDocument({ data: new Uint8Array(await files[0].arrayBuffer()) }).promise;
+    const pdf = await pdfjsLib.getDocument({ data: new Uint8Array(await files[0].arrayBuffer()), verbosity: 0 }).promise;
     pages = [];
     for (let i = 1; i <= pdf.numPages; i++){
       const text = (await (await pdf.getPage(i)).getTextContent()).items.map(it => it.str).join(" ");
@@ -144,7 +148,7 @@ function draw(){
   const line = (name, old, neu, moneyish=true) => `<tr><td>${name}</td><td>${moneyish ? money(old) : num(old)}</td><td>${moneyish ? money(neu) : num(neu)}</td><td class="diff">${moneyish ? money(old - neu) : num(old - neu)}</td></tr>`;
   document.getElementById("out").innerHTML = `<h2>Page ${page.page}: ${page.begin} to ${page.end}</h2><div class="wrap"><table><tr><th></th><th>Old, scheduled cap</th><th>New, 40 / 32 / 0</th><th class="diff">Difference</th></tr>
     ${line("Paycheck", parsed.pay, parsed.pay)} ${line("Hours counted for retirement", oldHours, newHours, false)} ${line("PTO counted", parsed.pto - left, parsed.pto - left, false)} ${line("Holiday counted", parsed.holiday, parsed.holiday, false)} ${line("Pay base, straight time", oldPay, newPay)} ${line("Your 401(k)", eeOld, eeNew)} ${line("Employer 401(k)", erOld, erNew)} ${line("Pension credit", oldPay * pep, newPay * pep)} ${line("Taxes saved", taxOld, taxNew)}
-  </table><div class="side"><h2>401(k) limit</h2><p>${oldCap.year}: ${money(oldCap.limit)} ${document.getElementById("age").value === "over" ? "with the age-50 catch-up" : "under 50"}. Room left before this check: ${money(oldCap.room)}.</p><p>2023 $22,500 / $30,000. 2024 $23,000 / $30,500. 2025 $23,500 / $31,000. 2026 $24,500 / $32,500. The second number is age 50 or over.</p><h2>PTO split and OT 1.5</h2>${side}</div></div>
+  </table><div class="side"><h2>401(k) limit</h2><p>${oldCap.year}: ${money(oldCap.limit)} ${ageValue() === "over" ? "with the age-50 catch-up" : "under 50"}. Room left before this check: ${money(oldCap.room)}.</p><p>2023 $22,500 / $30,000. 2024 $23,000 / $30,500. 2025 $23,500 / $31,000. 2026 $24,500 / $32,500. The second number is age 50 or over.</p><h2>PTO split and OT 1.5</h2>${side}</div></div>
   <div class="totals"><h2>Total difference</h2><ul><li>Your 401(k): ${money(eeOld - eeNew)}</li><li>Employer 401(k): ${money(erOld - erNew)}</li><li>Pension: ${money((oldPay - newPay) * pep)}</li><li>Taxes saved: ${money(taxOld - taxNew)}</li></ul><p>Combined: ${money((eeOld - eeNew) + (erOld - erNew) + (oldPay - newPay) * pep + (taxOld - taxNew))}.</p></div>`;
 }
 </script>
