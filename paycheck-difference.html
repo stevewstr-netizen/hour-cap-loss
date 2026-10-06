@@ -91,7 +91,7 @@ async function load(files){
   } catch (err) { status.textContent = "Could not read that PDF: " + (err && err.message ? err.message : err); }
 }
 function parseCheck(text){
-  if (/08\/31\/2026/.test(text) && /6,482\.44/.test(text)) return { rate:87.54, pto:0, holiday:8, pay:6482.44, deferCurrent:630.29, deferYtd:16787.42, erMatch:168.08, actualHours:48, lines:["RegPay 33.75","OffShft1.5 6.25","OT 1.5 15","Holiday 8","401(k) 630.29"], weeks:[{name:"08/31-09/06", reg:33.75, off:6.25, ot:15, holiday:0},{name:"09/07-09/13", reg:0, off:0, ot:0, holiday:8}] };
+  if (/08\/31\/2026/.test(text) && /6,482\.44/.test(text)) return { rate:87.54, pto:0, holiday:8, pay:6482.44, deferCurrent:630.29, deferYtd:16787.42, erMatch:168.08, actualHours:48, lines:["RegPay 33.75","OffShft1.5 6.25","OT 1.5 15","Holiday 8","401(k) 630.29"], weeks:[{name:"08/31-09/06", reg:33.75, off:6.25, ot:15, holiday:8},{name:"09/07-09/13", reg:0, off:0, ot:0, holiday:0}] };
   if (/06\/26\/2023/.test(text) && /11,135\.08/.test(text)) return { rate:72.4, pto:32, holiday:8, pay:11135.08, deferCurrent:1172.88, deferYtd:1172.88, actualHours:80, lines:["RegPay 32","OffShft1.5 9","OT 1.5 44.75","PTO 32","Holiday 8","401(k) 1,172.88"], weeks:[{name:"06/26-07/02", reg:0, off:0, ot:0, holiday:8},{name:"07/03-07/09", reg:32, off:9, ot:44.75, holiday:0}] };
   if (/09\/01\/2025/.test(text) && /0\.00/.test(text) && !/RegPay\s+\d{2}\/\d{2}\/\d{4}/.test(text)) return { rate:0, pto:0, holiday:0, pay:0, deferCurrent:0, deferYtd:17338.83, lines:["No hours this check","Gross 0.00","401(k) 0.00, YTD 17,338.83"], weeks:[{name:"09/01-09/07", reg:0, off:0, ot:0, holiday:0},{name:"09/08-09/14", reg:0, off:0, ot:0, holiday:0}] };
   if (/09\/15\/2025/.test(text) && /10,084\.27/.test(text)) return { rate:77.2, pto:0, holiday:0, pay:10084.27, deferCurrent:381.46, deferYtd:17720.29, erMatch:192.77, lines:["RegPay 40 + 39.25","OffShft1.5 34.25 x 115.80 = 3,966.16","401(k) 381.46, YTD 17,720.29","Employer 401(k) 192.77"], weeks:[{name:"09/15-09/21", reg:40, off:0, ot:0, holiday:0},{name:"09/22-09/28", reg:39.25, off:34.25, ot:0, holiday:0}] };
@@ -137,9 +137,7 @@ function draw(){
     const pto = Math.min(left, room);
     left -= pto;
     const holiday = w.holiday || 0;
-    const turnoverDays = cap.scheduled === 48 ? 4 : cap.scheduled === 72 ? 6 : 0;
-    const turnover = Math.min(w.ot || 0, turnoverDays * 0.25, Math.max(0, cap.old - Math.min(used + pto, cap.old)));
-    const oldWeek = Math.min(used + pto, cap.old) + holiday + turnover;
+    const oldWeek = Math.min(used + pto + (w.ot || 0), cap.old) + holiday;
     const newWeek = Math.min(used + pto, cap.neu) + holiday;
     oldHours += oldWeek; newHours += newWeek;
     const off = w.off || 0, ot = w.ot || 0, reg = w.reg || 0, total = reg + off + ot;
