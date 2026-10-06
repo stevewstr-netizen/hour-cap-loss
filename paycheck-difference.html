@@ -132,19 +132,19 @@ function draw(){
   let left = parsed.pto, oldHours = 0, newHours = 0, side = `<p>PTO fills only scheduled hours. Overtime still inside the old schedule counts on the old side. Off-shift is ${rate2(base)} x 1.5 = ${rate2(base * 1.5)}.</p>`;
   parsed.weeks.forEach((w, i) => {
     const cap = picks[i];
-    const used = (w.reg || 0) + (w.off || 0) + (w.holiday || 0);
+    const used = (w.reg || 0) + (w.off || 0);
     const room = Math.max(0, cap.scheduled - used);
     const pto = Math.min(left, room);
     left -= pto;
-    const countable = used + pto;
-    const otForOld = pto > 0 ? 0 : Math.min(w.ot || 0, Math.max(0, cap.old - countable));
-    const oldWeek = Math.min(countable + otForOld, cap.old), newWeek = Math.min(countable, cap.neu);
+    const holiday = w.holiday || 0;
+    const oldWeek = Math.min(used + pto, cap.old) + holiday;
+    const newWeek = Math.min(used + pto, cap.neu) + holiday;
     oldHours += oldWeek; newHours += newWeek;
     const off = w.off || 0, ot = w.ot || 0, reg = w.reg || 0, total = reg + off + ot;
     const ratio = total ? off / total : 0;
     const regularRate = base * (1 + 0.5 * ratio);
     const otRate = base + 0.5 * regularRate;
-    side += `<p><b>${w.name}, ${cap.name}</b><br>PTO placed here: ${num(pto)}. Off-shift counts on the old side, up to ${num(cap.old)}. OT 1.5 does not.<br>Old counts ${num(oldWeek)}. New counts ${num(newWeek)}.</p>`;
+    side += `<p><b>${w.name}, ${cap.name}</b><br>PTO placed here: ${num(pto)}. Holiday added on top of the cap: ${num(holiday)}.<br>Old counts ${num(oldWeek)}. New counts ${num(newWeek)}.</p>`;
   });
   const oldPay = oldHours * base, newPay = newHours * base;
   const oldCap = capDeferral(oldPay * eeRate), newCap = capDeferral(newPay * eeRate);
