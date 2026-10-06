@@ -139,7 +139,8 @@ function draw(){
     const pto = Math.min(left, room);
     left -= pto;
     const holiday = w.holiday || 0;
-    const oldWeek = Math.min(used + pto, cap.scheduled) + holiday;
+    const turnover = cap.scheduled === 72 ? 1.5 : cap.scheduled === 48 ? 1 : 0;
+    const oldWeek = (used + (w.ot || 0) + pto > 0 ? cap.scheduled + turnover : 0) + holiday;
     const newWeek = Math.min(w.reg || 0, cap.neu) + Math.min(w.off || 0, 40) + pto + holiday;
     oldHours += oldWeek; newHours += newWeek;
     const off = w.off || 0, ot = w.ot || 0, reg = w.reg || 0, total = reg + off + ot;
