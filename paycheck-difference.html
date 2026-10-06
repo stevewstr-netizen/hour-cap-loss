@@ -149,7 +149,7 @@ function draw(){
     const ratio = total ? off / total : 0;
     const regularRate = base * (1 + 0.5 * ratio);
     const otRate = base + 0.5 * regularRate;
-    side += `<p><b>${w.name}, ${cap.name}</b><br>PTO placed here: ${num(pto)}. Holiday added on top of the cap: ${num(holiday)}.<br>Old counts ${num(oldWeek)}. New counts ${num(newWeek)}.</p>`;
+    side += `<p><b>${w.name}, ${cap.name}</b><br>PTO and holiday count on the new side only up to 40. Holiday this week: ${num(holiday)}.<br>Old counts ${num(oldWeek)}. New counts ${num(newWeek)}.</p>`;
   });
   const oldPay = oldHours * base, newPay = newHours * base;
   const oldCap = capDeferral(oldPay * eeRate), newCap = capDeferral(newPay * eeRate);
