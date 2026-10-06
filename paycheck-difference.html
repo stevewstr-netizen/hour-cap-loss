@@ -143,7 +143,7 @@ function draw(){
     const turnover = cap.scheduled === 72 ? 1.5 : cap.scheduled === 48 ? 1 : 0;
     const oldWeek = (worked > 0 ? cap.scheduled + turnover : 0) + pto + holiday;
     const newBase = Math.min(used + (worked >= 40 ? 0 : pto), cap.neu);
-    const newWeek = newBase + holiday;
+    const newWeek = Math.min(used + pto + holiday, cap.neu);
     oldHours += oldWeek; newHours += newWeek;
     const off = w.off || 0, ot = w.ot || 0, reg = w.reg || 0, total = reg + off + ot;
     const ratio = total ? off / total : 0;
