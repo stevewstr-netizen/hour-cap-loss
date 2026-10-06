@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Retirement loss app</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<style>
+body { font-family: Arial, sans-serif; margin: 24px; color: #1a1a1a; }
+h1 { color: #1F4E79; font-size: 22px; }
+label { display: block; margin: 8px 0 4px; font-size: 13px; }
+input, select, button { font: 14px Arial; padding: 6px 8px; }
+button { background: #1F4E79; color: white; border: 0; border-radius: 4px; cursor: pointer; margin-right: 8px; }
+.row { display: flex; gap: 16px; flex-wrap: wrap; align-items: end; }
+table { border-collapse: collapse; font-size: 12px; margin-top: 16px; }
+th { background: #1F4E79; color: white; padding: 6px; position: sticky; top: 0; }
+td { border: 1px solid #ddd; padding: 4px 6px; }
+.loss { background: #f4cccc; }
+.flag { background: #fff2cc; }
+.note { max-width: 820px; font-size: 14px; }
+</style>
+</head>
+<body>
+<h1>Retirement hour-cap loss</h1>
+<p class="note">Upload the Workday paycheck PDF, one check per page. The new method starts with the pay period beginning 09/29/2025. Before that, a highlighted row means the 401(k) hours do not match the old count. The last quarter of 2025 has no 401(k) loss if that box is checked, because deferrals were stopped.</p>
+<div class="row">
+  <div><label>Paycheck PDF</label><input id="file" type="file" accept="application/pdf,.pdf"></div>
+  <div><label>Your 401(k) percent</label><input id="defer" type="number" value="15" min="0" max="100"></div>
+  <div><label>Pension percent</label><input id="pension" type="number" value="10" min="0" max="100"></div>
+  <div><label>Tax rate percent</label><input id="tax" type="number" value="28.4" step="0.1"></div>
+  <div><label>First check rotation week</label>
+    <select id="week">
+      <option value="1">48 scheduled</option>
+      <option value="2">40 scheduled</option>
+      <option value="3">72 scheduled</option>
+      <option value="4">48 scheduled, second</option>
+      <option value="5">Off</option>
+      <option value="6" selected>32 scheduled</option>
+    </select>
+  </div>
+  <div><label>Stopped 401(k) last quarter 2025</label><input id="stopped" type="checkbox" checked></div>
+  <div><button id="go" type="button">Calculate</button><button id="dl" type="button">Download spreadsheet</button></div>
+</div>
+<p id="status">Choose the PDF, then Calculate.</p>
+<div id="out"></div>
+<script>
+pdfjsLib.GlobalWorkerOptions.workerSrc = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
+const caps = {1:{scheduled:48, old:49, neu:40}, 2:{scheduled:40, old:40, neu:40}, 3:{scheduled:72, old:73.5, neu:40}, 4:{scheduled:48, old:49, neu:40}, 5:{scheduled:0, old:0, neu:0}, 6:{scheduled:32, old:32, neu:40}};
+let rows = [];
+function money(n){ return (n||0).toLocaleString("en-US", {style:"currency", currency:"USD"}); }
+function parsePage(text){
+  const period = text.match(/(\d{2}\/\d{2}\/\d{4})\s+(\d{2}\/\d{2}\/\d{4})\s+(\d{2}\/\d{2}\/\d{4})/);
+  const lines = [...text.matchAll(/(RegPay|OffShft1\.5|OT 1\.5|PTO|Holiday)\s+(\d{2}\/\d{2}\/\d{4})\s*-\s*(\d{2}\/\d{2}\/\d{4})\s+([\d.]+)\s+([\d.]+)/g)];
+  const weeks = {};
+  let rate = 0, pto = 0, holiday = 0;
+  lines.forEach(m => {
+    const hours = parseFloat(m[4]);
+    weeks[m[2]] = weeks[m[2]] || {reg:0, off:0, ot:0};
+    if (m[1] === "RegPay") { weeks[m[2]].reg += hours; rate = rate || parseFloat(m[5]); }
+    else if (m[1] === "OffShft1.5") weeks[m[2]].off += hours;
+    else if (m[1] === "OT 1.5") weeks[m[2]].ot += hours;
+    else if (m[1] === "PTO") pto += hours;
+    else holiday += hours;
+  });
+  const k = text.match(/401\(k\)\s+([\d,]+\.\d{2})/);
+  const er = text.match(/401k ER\s+\d+\s+([\d,]+\.\d{2})/);
+  return { begin: period ? period[1] : "", end: period ? period[2] : "", rate, pto, holiday, weeks: Object.keys(weeks).sort().map(key => weeks[key]), ee: k ? parseFloat(k[1].replace(/,/g,"")) : 0, er: er ? parseFloat(er[1].replace(/,/g,"")) : 0 };
+}
+function dateOf(s){ const p = s.split("/"); return new Date(p[2], p[0]-1, p[1]); }
+function calc(parsed, startWeek, defer, pension, tax, stopped){
+  const begin = parsed.begin ? dateOf(parsed.begin) : null;
+  const after = begin && begin >= new Date(2025, 8, 29);
+  const deferring = !(stopped && begin && begin >= new Date(2025, 8, 29) && begin < new Date(2025, 11, 22));
+  let oldHours = 0, newHours = 0, left = parsed.pto, holidayLeft = parsed.holiday;
+  const weekList = parsed.weeks.length ? parsed.weeks : [{reg:0, off:0, ot:0}, {reg:0, off:0, ot:0}];
+  weekList.slice(0,2).forEach((w, i) => {
+    const cap = caps[((startWeek - 1 + i) % 6) + 1];
+    const used = (w.reg||0) + (w.off||0);
+    const holiday = Math.min(holidayLeft, 8);
+    holidayLeft -= holiday;
+    const room = Math.max(0, cap.scheduled - used - holiday);
+    const pto = Math.min(left, room);
+    left -= pto;
+    const worked = used + (w.ot||0);
+    oldHours += worked > 0 ? cap.old : Math.min(pto + holiday, cap.scheduled);
+    newHours += Math.min(w.reg||0, cap.neu) + Math.min(w.off||0, 40) + pto + holiday;
+  });
+  oldHours += left + holidayLeft;
+  newHours += left + holidayLeft;
+  const actual = deferring && parsed.rate && parsed.ee < 5000 ? parsed.ee / defer / parsed.rate : 0;
+  const hourLoss = after ? Math.max(0, oldHours - newHours) : 0;
+  const eeLoss = hourLoss * parsed.rate * defer * (deferring ? 1 : 0);
+  const erLoss = deferring ? Math.min(eeLoss * 0.5, hourLoss * parsed.rate * 0.04) : 0;
+  const penLoss = hourLoss * parsed.rate * pension;
+  const taxLoss = eeLoss * tax;
+  const flag = !after && deferring && actual && Math.abs(actual - oldHours) > 1;
+  return { oldHours, newHours, actual, eeLoss, erLoss, penLoss, taxLoss, after, flag, deferring };
+}
+document.getElementById("go").onclick = async () => {
+  const file = document.getElementById("file").files[0];
+  if (!file) { document.getElementById("status").textContent = "Choose a PDF first."; return; }
+  document.getElementById("status").textContent = "Reading " + file.name + "...";
+  const data = new Uint8Array(await file.arrayBuffer());
+  const pdf = await pdfjsLib.getDocument({data}).promise;
+  const start = Number(document.getElementById("week").value);
+  const defer = (Number(document.getElementById("defer").value)||0)/100;
+  const pension = (Number(document.getElementById("pension").value)||0)/100;
+  const tax = (Number(document.getElementById("tax").value)||0)/100;
+  const stopped = document.getElementById("stopped").checked;
+  rows = [];
+  for (let i = 1; i <= pdf.numPages; i++) {
+    const page = await pdf.getPage(i);
+    const content = await page.getTextContent();
+    const text = content.items.map(item => item.str).join(" ");
+    const parsed = parsePage(text);
+    const result = calc(parsed, ((start - 1 + (i-1)*2) % 6) + 1, defer, pension, tax, stopped);
+    rows.push({page:i, ...parsed, ...result});
+  }
+  const totals = rows.reduce((s, r) => ({ee:s.ee+r.eeLoss, er:s.er+r.erLoss, pen:s.pen+r.penLoss, tax:s.tax+r.taxLoss}), {ee:0, er:0, pen:0, tax:0});
+  document.getElementById("status").textContent = "Read " + rows.length + " checks. New method starts 09/29/2025.";
+  document.getElementById("out").innerHTML = `<table><tr><th>Page</th><th>Begin</th><th>Old hours</th><th>New hours</th><th>Your 401(k)</th><th>Employer 401(k)</th><th>Pension</th><th>Tax</th></tr>` +
+    rows.map(r => `<tr class="${r.flag ? "flag" : r.after && (r.eeLoss+r.penLoss)>0 ? "loss" : ""}"><td>${r.page}</td><td>${r.begin}</td><td>${r.oldHours.toFixed(2)}</td><td>${r.newHours.toFixed(2)}</td><td>${money(r.eeLoss)}</td><td>${money(r.erLoss)}</td><td>${money(r.penLoss)}</td><td>${money(r.taxLoss)}</td></tr>`).join("") +
+    `<tr><td>Total</td><td></td><td></td><td></td><td>${money(totals.ee)}</td><td>${money(totals.er)}</td><td>${money(totals.pen)}</td><td>${money(totals.tax)}</td></tr></table>` +
+    `<p>Combined ${money(totals.ee+totals.er+totals.pen+totals.tax)}. Yellow rows are before the change and do not match the old hours.</p>`;
+};
+document.getElementById("dl").onclick = () => {
+  if (!rows.length) { document.getElementById("status").textContent = "Calculate first."; return; }
+  const esc = s => String(s).replace(/&/g,"&").replace(/</g,"<");
+  const header = ["Page","Pay period begin","Pay period end","Rate","Old hours","New hours","Your 401(k) loss","Employer 401(k) loss","Pension loss","Tax loss","After change","Flag"];
+  const body = rows.map(r => [r.page, r.begin, r.end, r.rate, r.oldHours, r.newHours, r.eeLoss, r.erLoss, r.penLoss, r.taxLoss, r.after ? "Yes" : "No", r.flag ? "Check" : ""]).map(cells => "<Row>" + cells.map(c => `<Cell><Data ss:Type="${typeof c === "number" ? "Number" : "String"}">${esc(c)}</Data></Cell>`).join("") + "</Row>").join("");
+  const totals = rows.reduce((s, r) => [s[0]+r.eeLoss, s[1]+r.erLoss, s[2]+r.penLoss, s[3]+r.taxLoss], [0,0,0,0]);
+  const xml = `<?xml version="1.0"?><Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet" xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet"><Worksheet ss:Name="Losses"><Table>${"<Row>"+header.map(h=>`<Cell><Data ss:Type="String">${h}</Data></Cell>`).join("")+"</Row>"}${body}<Row><Cell><Data ss:Type="String">Total</Data></Cell><Cell></Cell><Cell></Cell><Cell></Cell><Cell></Cell><Cell></Cell>${totals.map(n=>`<Cell><Data ss:Type="Number">${n}</Data></Cell>`).join("")}</Row></Table></Worksheet></Workbook>`;
+  const blob = new Blob([xml], {type:"application/vnd.ms-excel"});
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = "Retirement-losses.xls";
+  a.click();
+};
+</script>
+</body>
+</html>
