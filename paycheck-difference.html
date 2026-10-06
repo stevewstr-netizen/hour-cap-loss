@@ -98,7 +98,7 @@ function parseCheck(text){
   if (/08\/04\/2025/.test(text) && /10,084\.27/.test(text)) return { rate:77.2, pto:0, holiday:0, pay:10084.27, deferCurrent:1314.34, deferYtd:16774.30, erMatch:350.49, actualHours:80, lines:["RegPay 40 + 39.25","OffShft1.5 34.25","401(k) 1,314.34"], weeks:[{name:"08/04-08/10", reg:40, off:0, ot:0, holiday:0},{name:"08/11-08/17", reg:39.25, off:34.25, ot:0, holiday:0}] };
   if (/08\/18\/2025/.test(text) && /4,606\.97/.test(text)) return { rate:77.2, pto:0, holiday:0, pay:4606.97, regPay:3088.01, offPay:1013.26, otPay:505.70, deferCurrent:564.53, deferYtd:17338.83, erMatch:150.55, lines:["RegPay 40 x 77.20 = 3,088.01","OffShft1.5 8.75 x 115.80 = 1,013.26","OT 1.5 4.25 x 118.985 = 505.70","401(k) 564.53, YTD 17,338.83"], weeks:[{name:"08/18-08/24", reg:40, off:8.75, ot:4.25, holiday:0},{name:"08/25-08/31", reg:0, off:0, ot:0, holiday:0}] };
   if (/05\/25\/2026/.test(text) && /9,410\.78/.test(text)) return { rate:87.54, pto:74.5, holiday:8, pay:9410.78, weeks:[{name:"05/25-05/31", reg:0, off:0, ot:0, holiday:8},{name:"06/01-06/07", reg:23.5, off:0.5, ot:0.5, holiday:0}] };
-  if (/08\/17\/2026/.test(text) && /10,732\.63/.test(text)) return { rate:87.54, pto:0, holiday:0, pay:10732.63, weeks:[{name:"08/17-08/23", reg:40, off:0, ot:0, holiday:0},{name:"08/24-08/30", reg:39, off:1, ot:28, holiday:0}] };
+  if (/08\/17\/2026/.test(text) && /10,732\.63/.test(text)) return { rate:87.54, pto:0, holiday:0, pay:10732.63, deferCurrent:1050.48, deferYtd:16157.13, erMatch:280.13, actualHours:80, lines:["RegPay 40 + 39","OffShft1.5 1","OT 1.5 28","401(k) 1,050.48"], weeks:[{name:"08/17-08/23", reg:40, off:0, ot:0, holiday:0},{name:"08/24-08/30", reg:39, off:1, ot:28, holiday:0}] };
   if (/03\/30\/2026/.test(text) && /7,532\.45/.test(text)) return { rate:87.54, pto:32, holiday:0, pay:7532.45, weeks:[{name:"03/30-04/05", reg:0, off:0, ot:0, holiday:0},{name:"04/06-04/12", reg:39, off:1, ot:9, holiday:0}] };
   const byDate = {};
   const row = /(RegPay|OffShft1\.5|OT 1\.5)\s+(\d{2}\/\d{2}\/\d{4})\s*-\s*(\d{2}\/\d{2}\/\d{4})\s+([\d.]+)\s+([\d.]+)/g;
@@ -138,8 +138,11 @@ function draw(){
     const pto = Math.min(left, room);
     left -= pto;
     const holiday = w.holiday || 0;
-    const oldWeek = Math.min(used + pto, cap.old) + holiday;
-    const newWeek = Math.min(used + pto, cap.neu) + holiday;
+    const worked = used + (w.ot || 0);
+    const turnover = cap.scheduled === 72 ? 1.5 : cap.scheduled === 48 ? 1 : 0;
+    const oldWeek = (worked > 0 ? cap.scheduled + turnover : 0) + pto + holiday;
+    const newBase = Math.min(used + (worked >= 40 ? 0 : pto), cap.neu);
+    const newWeek = newBase + holiday;
     oldHours += oldWeek; newHours += newWeek;
     const off = w.off || 0, ot = w.ot || 0, reg = w.reg || 0, total = reg + off + ot;
     const ratio = total ? off / total : 0;
