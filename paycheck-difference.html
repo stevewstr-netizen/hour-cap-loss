@@ -91,6 +91,7 @@ async function load(files){
   } catch (err) { status.textContent = "Could not read that PDF: " + (err && err.message ? err.message : err); }
 }
 function parseCheck(text){
+  if (/06\/08\/2026/.test(text) && /5,230\.52/.test(text)) return { rate:87.54, pto:5.5, holiday:0, pay:5230.52, deferCurrent:617.16, deferYtd:11534.99, erMatch:164.58, actualHours:47, lines:["RegPay 40","OffShft1.5 1.5","OT 1.5 8","PTO 5.5","401(k) 617.16"], weeks:[{name:"06/08-06/14", reg:40, off:1.5, ot:8, holiday:0},{name:"06/15-06/21", reg:0, off:0, ot:0, holiday:0}] };
   if (/07\/20\/2026/.test(text) && /5,624\.23/.test(text)) return { rate:87.54, pto:0, holiday:0, pay:5624.23, deferCurrent:525.25, deferYtd:14056.16, erMatch:140.07, actualHours:40, lines:["RegPay 38.25","OffShft1.5 1.75","OT 1.5 15.5","401(k) 525.25"], weeks:[{name:"07/20-07/26", reg:38.25, off:1.75, ot:15.5, holiday:0},{name:"07/27-08/02", reg:0, off:0, ot:0, holiday:0}] };
   if (/08\/31\/2026/.test(text) && /6,482\.44/.test(text)) return { rate:87.54, pto:0, holiday:8, pay:6482.44, deferCurrent:630.29, deferYtd:16787.42, erMatch:168.08, actualHours:48, lines:["RegPay 33.75","OffShft1.5 6.25","OT 1.5 15","Holiday 8","401(k) 630.29"], weeks:[{name:"08/31-09/06", reg:33.75, off:6.25, ot:15, holiday:8},{name:"09/07-09/13", reg:0, off:0, ot:0, holiday:0}] };
   if (/06\/26\/2023/.test(text) && /11,135\.08/.test(text)) return { rate:72.4, pto:32, holiday:8, pay:11135.08, deferCurrent:1172.88, deferYtd:1172.88, actualHours:80, lines:["RegPay 32","OffShft1.5 9","OT 1.5 44.75","PTO 32","Holiday 8","401(k) 1,172.88"], weeks:[{name:"06/26-07/02", reg:0, off:0, ot:0, holiday:8},{name:"07/03-07/09", reg:32, off:9, ot:44.75, holiday:0}] };
@@ -143,13 +144,13 @@ function draw(){
     const turnover = cap.scheduled === 72 ? 1.5 : cap.scheduled === 48 ? 1 : 0;
     const oldWeek = (worked > 0 ? cap.scheduled + turnover : 0) + pto + holiday;
     const newBase = Math.min(used + (worked >= 40 ? 0 : pto), cap.neu);
-    const newWeek = Math.min(used + pto + holiday, cap.neu);
+    const newWeek = Math.min(w.reg || 0, cap.neu) + Math.min(w.off || 0, 40) + pto + holiday;
     oldHours += oldWeek; newHours += newWeek;
     const off = w.off || 0, ot = w.ot || 0, reg = w.reg || 0, total = reg + off + ot;
     const ratio = total ? off / total : 0;
     const regularRate = base * (1 + 0.5 * ratio);
     const otRate = base + 0.5 * regularRate;
-    side += `<p><b>${w.name}, ${cap.name}</b><br>PTO and holiday count on the new side only up to 40. Holiday this week: ${num(holiday)}.<br>Old counts ${num(oldWeek)}. New counts ${num(newWeek)}.</p>`;
+    side += `<p><b>${w.name}, ${cap.name}</b><br>Off-schedule hours count up to 40. PTO counts even over 40: ${num(pto)}.<br>Old counts ${num(oldWeek)}. New counts ${num(newWeek)}.</p>`;
   });
   const oldPay = oldHours * base, newPay = newHours * base;
   const oldCap = capDeferral(oldPay * eeRate), newCap = capDeferral(newPay * eeRate);
