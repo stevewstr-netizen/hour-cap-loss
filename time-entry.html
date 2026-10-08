@@ -34,6 +34,22 @@
   <label>Straight-time rate</label><input id="rate" type="number" value="" min="0" step="0.01" />
   <label>Your 401(k) percent</label><input id="defer" type="number" value="" min="0" step="0.5" />
   <label>Pension percent</label><input id="pension" type="number" value="" min="0" step="0.5" />
+  <label>Week 1</label>
+  <select id="week1">
+    <option value="40">40 scheduled</option>
+    <option value="48">48 scheduled</option>
+    <option value="72">72 scheduled</option>
+    <option value="32">32 scheduled</option>
+    <option value="0">Off</option>
+  </select>
+  <label>Week 2</label>
+  <select id="week2">
+    <option value="72">72 scheduled</option>
+    <option value="48">48 scheduled</option>
+    <option value="40">40 scheduled</option>
+    <option value="32">32 scheduled</option>
+    <option value="0">Off</option>
+  </select>
   <button type="button" id="go">Calculate</button>
   <button type="button" id="clear">Clear</button>
 </div>
@@ -45,7 +61,7 @@ let parsed = null;
 const reports = {
   aug: { label: "08/17/2026-08/30/2026", reg: 79, scheduled: 28.25, turnover: 0.75, weeks: 2, pay: 10732.63 },
   sep: { label: "09/14/2026-09/27/2026", reg: 61.75, scheduled: 55.25, turnover: 0.75, weeks: 2, pay: 12891.85 },
-  next: { label: "09/28/2026-10/11/2026", reg: 32.75, scheduled: 115.5, turnover: 0.75, weeks: 2, pay: 0 }
+  next: { label: "09/28/2026-10/11/2026", reg: 32.75, off: 47.25, ot: 68.25, turnover: 0.75, week1: "40", week2: "72", pay: 0 }
 };
 document.getElementById("file").addEventListener("change", () => {
   const file = document.getElementById("file").files[0];
@@ -56,6 +72,8 @@ document.getElementById("file").addEventListener("change", () => {
   else if (/9-14|09-14/.test(name)) parsed = reports.sep;
   else parsed = reports.aug;
   parsed = Object.assign({ file: file.name }, parsed);
+  if (parsed.week1) document.getElementById("week1").value = parsed.week1;
+  if (parsed.week2) document.getElementById("week2").value = parsed.week2;
   status.textContent = "Loaded " + file.name + ".";
   draw();
 });
@@ -75,9 +93,22 @@ function draw(){
   const base = Number(document.getElementById("rate").value) || 0;
   const eeRate = (Number(document.getElementById("defer").value) || 0) / 100;
   const pep = (Number(document.getElementById("pension").value) || 0) / 100;
-  const oldHours = parsed.reg + parsed.scheduled;
-  const newHours = parsed.weeks * 40;
-  const pay = parsed.pay || ((parsed.reg + parsed.scheduled + parsed.turnover) * base);
+  const scheduled = Number(document.getElementById("week1").value) + Number(document.getElementById("week2").value);
+  const turnover = (document.getElementById("week1").value === "48" ? 1 : document.getElementById("week1").value === "72" ? 1.5 : 0) + (document.getElementById("week2").value === "48" ? 1 : document.getElementById("week2").value === "72" ? 1.5 : 0);
+  const oldHours = scheduled + turnover;
+  const newHours = (Number(document.getElementById("week1").value) > 0 ? 40 : 0) + (Number(document.getElementById("week2").value) > 0 ? 40 : 0);
+  const off = parsed.off || 0;
+  const ot = parsed.ot || 0;
+  const turn = parsed.turnover || 0;
+  const total = parsed.reg + off + ot + turn;
+  const ratio = total ? (off + turn) / total : 0;
+  const regularRate = base * (1 + 0.5 * ratio);
+  const otRate = base + 0.5 * regularRate;
+  const regPay = parsed.reg * base;
+  const offPay = off * base * 1.5;
+  const turnPay = turn * base * 1.5;
+  const otPay = ot * otRate;
+  const pay = parsed.pay || (regPay + offPay + turnPay + otPay);
   const oldPay = oldHours * base, newPay = newHours * base;
   const eeOld = oldPay * eeRate, eeNew = newPay * eeRate;
   const erOld = eeRate > 0 ? Math.min(eeOld * 0.5, oldPay * 0.04) : 0;
@@ -85,17 +116,18 @@ function draw(){
   const taxOld = eeOld * 0.284, taxNew = eeNew * 0.284;
   const line = (name, old, neu, moneyish=true) => `<tr><td>${name}</td><td>${moneyish ? money(old) : num(old)}</td><td>${moneyish ? money(neu) : num(neu)}</td><td class="diff">${moneyish ? money(old - neu) : num(old - neu)}</td></tr>`;
   document.getElementById("out").innerHTML = `<h2>${parsed.file}</h2><div class="wrap"><table><tr><th></th><th>Old, scheduled hours</th><th>New, 40 per week</th><th class="diff">Difference</th></tr>
+    ${line("Regular " + num(parsed.reg) + " x " + num(base), regPay, regPay)}
+    ${line("Off-shift " + num(off) + " x " + num(base * 1.5), offPay, offPay)}
+    ${line("OT 1.5 " + num(ot) + " x " + num(otRate), otPay, otPay)}
+    ${line("Turnover " + num(turn) + " x " + num(base * 1.5), turnPay, turnPay)}
     ${line("Paycheck", pay, pay)}
     ${line("Hours counted for retirement", oldHours, newHours, false)}
-    ${line("Regular", parsed.reg, Math.min(parsed.reg, newHours), false)}
-    ${line("Scheduled off-shift counted", parsed.scheduled, Math.max(0, newHours - parsed.reg), false)}
-    ${line("Turnover, not counted", parsed.turnover, parsed.turnover, false)}
     ${line("Pay base, straight time", oldPay, newPay)}
     ${line("Your 401(k)", eeOld, eeNew)}
     ${line("Employer 401(k)", erOld, erNew)}
     ${line("Pension credit", oldPay * pep, newPay * pep)}
     ${line("Taxes saved", taxOld, taxNew)}
-  </table><div class="side"><h2>${parsed.label}</h2><p>Old counts ${num(oldHours)} scheduled hours. New counts ${num(newHours)}. The difference is ${num(oldHours - newHours)} hours.</p><p>The paycheck does not change. Only the retirement count changes.</p></div></div>
+  </table><div class="side"><h2>${parsed.label}</h2><p>Old counts the scheduled week plus turnover: ${num(oldHours)}. New counts 40 for each worked week: ${num(newHours)}.</p><p>Off-shift is ${num(base)} x 1.5 = ${num(base * 1.5)}.</p><p>Blended OT uses the off-shift share of the period, ${(ratio * 100).toFixed(1)}%. Regular rate = ${num(base)} x (1 + 0.5 x ${num(ratio)}) = ${num(regularRate)}. OT rate = ${num(base)} + 0.5 x ${num(regularRate)} = ${num(otRate)}.</p></div></div>
   <div class="totals"><h2>Total difference</h2><ul><li>Your 401(k): ${money(eeOld - eeNew)}</li><li>Employer 401(k): ${money(erOld - erNew)}</li><li>Pension: ${money((oldPay - newPay) * pep)}</li><li>Taxes saved: ${money(taxOld - taxNew)}</li></ul><p>Combined: ${money((eeOld - eeNew) + (erOld - erNew) + (oldPay - newPay) * pep + (taxOld - taxNew))}.</p></div>`;
 }
 </script>
